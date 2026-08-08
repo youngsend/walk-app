@@ -17,6 +17,7 @@ import {
   initProbe,
   probeQuery,
 } from "@/lib/probe";
+import { createProbeStore, ProbeSqlite } from "@/lib/probe-store";
 
 /**
  * Step 1-4: Expo Go が 900MB の DB を扱えるか確かめる。
@@ -36,23 +37,13 @@ export default function Probe() {
 
   const busy = running !== null;
 
-  /** 開いた接続を持っておく。閉じないと deleteDatabaseAsync が失敗する。 */
-  const handle = useRef<SQLite.SQLiteDatabase | null>(null);
+  /** 開閉と削除の順序は lib/probe-store.ts が持つ（テスト済み）。 */
+  const store = useRef(createProbeStore(SQLite as unknown as ProbeSqlite, PROBE_DB));
 
   async function open(): Promise<Database> {
-    if (!handle.current) {
-      handle.current = await SQLite.openDatabaseAsync(PROBE_DB);
-    }
-    const db = handle.current as unknown as Database;
+    const db = await store.current.open();
     await initProbe(db);
     return db;
-  }
-
-  async function close() {
-    if (handle.current) {
-      await handle.current.closeAsync();
-      handle.current = null;
-    }
   }
 
   async function run(label: "膨張" | "クエリ" | "削除", fn: () => Promise<void>) {
@@ -91,9 +82,7 @@ export default function Probe() {
 
   const remove = () =>
     run("削除", async () => {
-      // 開いたままだと削除できない
-      await close();
-      await SQLite.deleteDatabaseAsync(PROBE_DB);
+      await store.current.remove();
       setBytes(0);
       setResult(null);
     });
