@@ -166,13 +166,6 @@ export default function Network() {
         </>
       )}
 
-      <Pressable
-        style={({ pressed }) => [styles.linkRow, pressed && styles.linkRowPressed]}
-        onPress={() => router.push("/probe")}
-      >
-        <Text style={styles.linkText}>大きな DB を試す</Text>
-        <Text style={styles.linkChevron}>›</Text>
-      </Pressable>
 
       <Pressable
         style={({ pressed }) => [styles.linkRow, pressed && styles.linkRowPressed]}

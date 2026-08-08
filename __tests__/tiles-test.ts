@@ -5,6 +5,7 @@ import {
   tileBounds,
   tileKey,
   tilesAround,
+  tilesForRoute,
 } from "@/lib/tiles";
 
 /** 開発時の初期エリア。docs/design.md#21-タイルの定義 */
@@ -117,6 +118,61 @@ describe("tilesAround", () => {
 
   it("同じタイルを二度返さない", () => {
     const tiles = tilesAround(CENTER, 2);
+    expect(new Set(tiles.map(tileKey)).size).toBe(tiles.length);
+  });
+});
+
+describe("tilesForRoute", () => {
+  const FROM = { lat: 35.62, lon: 139.7 };
+
+  it("同じ地点なら、その 1 枚を含む", () => {
+    const tiles = tilesForRoute(FROM, FROM);
+    expect(tiles).toContainEqual(tileAt(FROM.lat, FROM.lon));
+  });
+
+  it("出発地と目的地のタイルを必ず含む", () => {
+    const to = { lat: 35.7, lon: 139.745 };
+    const tiles = tilesForRoute(FROM, to);
+    expect(tiles).toContainEqual(tileAt(FROM.lat, FROM.lon));
+    expect(tiles).toContainEqual(tileAt(to.lat, to.lon));
+  });
+
+  it("直線上のタイルを取りこぼさない", () => {
+    // 2 点を結ぶ直線を刻んで、どの点のタイルも含まれること
+    const to = { lat: 35.7, lon: 139.745 };
+    const tiles = new Set(tilesForRoute(FROM, to).map(tileKey));
+    for (let i = 0; i <= 100; i++) {
+      const t = i / 100;
+      const point = {
+        lat: FROM.lat + (to.lat - FROM.lat) * t,
+        lon: FROM.lon + (to.lon - FROM.lon) * t,
+      };
+      expect(tiles.has(tileKey(tileAt(point.lat, point.lon)))).toBe(true);
+    }
+  });
+
+  it("遠回りを許す範囲だけ横に膨らむ", () => {
+    // **これが楕円である理由。** 出発地と目的地からの距離の和が
+    // 「直線 × 許容倍率」以下なら、その倍率以内の経路は必ずこの中に収まる
+    const to = { lat: 35.7, lon: 139.745 };
+    const narrow = tilesForRoute(FROM, to, 1.2);
+    const wide = tilesForRoute(FROM, to, 2.0);
+    expect(wide.length).toBeGreaterThan(narrow.length);
+  });
+
+  it("矩形より狭い", () => {
+    // 矩形（外接する長方形）より少ないこと。これが読み込みを減らす根拠
+    const to = { lat: 35.7, lon: 139.745 };
+    const a = tileAt(FROM.lat, FROM.lon);
+    const b = tileAt(to.lat, to.lon);
+    const rectangle =
+      (Math.abs(a.x - b.x) + 3) * (Math.abs(a.y - b.y) + 3); // 余白 1 枚の矩形
+    expect(tilesForRoute(FROM, to, 1.4).length).toBeLessThan(rectangle);
+  });
+
+  it("同じタイルを二度返さない", () => {
+    const to = { lat: 35.7, lon: 139.745 };
+    const tiles = tilesForRoute(FROM, to);
     expect(new Set(tiles.map(tileKey)).size).toBe(tiles.length);
   });
 });

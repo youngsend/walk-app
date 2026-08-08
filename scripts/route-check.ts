@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Database, loadTiles } from "../lib/db";
 import { buildGraph, distanceMeters, nearestNode } from "../lib/graph";
 import { findRoute, highwayBreakdown } from "../lib/route";
-import { TileId, tileAt } from "../lib/tiles";
+import { tilesForRoute } from "../lib/tiles";
 
 const [, , dbPath, ...coords] = process.argv;
 if (!dbPath || coords.length !== 4) {
@@ -48,27 +48,11 @@ function wrap(path: string): Database {
   };
 }
 
-/**
- * 2 地点を囲む矩形のタイルすべて。周囲 1 枚分を余分に取る。
- *
- * tilesAround（中心からの正方形）では、離れた 2 地点を結ぶ帯を覆えない。
- * 迂回のぶん外へふくらむので、余白を持たせておく。
- */
-function tilesCovering(a: TileId, b: TileId, margin = 1): TileId[] {
-  const tiles: TileId[] = [];
-  for (let y = Math.min(a.y, b.y) - margin; y <= Math.max(a.y, b.y) + margin; y++) {
-    for (let x = Math.min(a.x, b.x) - margin; x <= Math.max(a.x, b.x) + margin; x++) {
-      tiles.push({ x, y });
-    }
-  }
-  return tiles;
-}
-
 async function main() {
   const db = wrap(dbPath);
 
   const straightKm = distanceMeters(from, to) / 1000;
-  const tiles = tilesCovering(tileAt(from.lat, from.lon), tileAt(to.lat, to.lon));
+  const tiles = tilesForRoute(from, to);
   console.log(`直線距離   : ${straightKm.toFixed(2)} km`);
   console.log(`読むタイル : ${tiles.length} 枚`);
 
