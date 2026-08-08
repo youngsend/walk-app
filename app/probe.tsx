@@ -1,3 +1,4 @@
+import { Directory, File } from "expo-file-system";
 import * as SQLite from "expo-sqlite";
 import { useRef, useState } from "react";
 import {
@@ -28,10 +29,26 @@ const PROBE_DB = "probe.db";
 const MB = 1024 * 1024;
 const format = (bytes: number) => `${(bytes / MB).toFixed(0)} MB`;
 
+type DiskEntry = { name: string; bytes: number };
+
+/** SQLite のディレクトリに実際に置かれているファイルを見る。 */
+function inspectDisk(): DiskEntry[] {
+  const dir = new Directory(SQLite.defaultDatabaseDirectory);
+  if (!dir.exists) return [];
+  return dir
+    .list()
+    .map((entry) => ({
+      name: decodeURIComponent(entry.uri.split("/").pop() ?? entry.uri),
+      bytes: entry instanceof File ? entry.size : 0,
+    }))
+    .sort((a, b) => b.bytes - a.bytes);
+}
+
 export default function Probe() {
+  const [disk, setDisk] = useState<DiskEntry[]>([]);
   const [bytes, setBytes] = useState(0);
   const [result, setResult] = useState<string | null>(null);
-  const [running, setRunning] = useState<"膨張" | "クエリ" | "削除" | null>(null);
+  const [running, setRunning] = useState<"膨張" | "クエリ" | "削除" | "確認" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const stop = useRef(false);
 
@@ -46,7 +63,10 @@ export default function Probe() {
     return db;
   }
 
-  async function run(label: "膨張" | "クエリ" | "削除", fn: () => Promise<void>) {
+  async function run(
+    label: "膨張" | "クエリ" | "削除" | "確認",
+    fn: () => Promise<void>,
+  ) {
     setRunning(label);
     setError(null);
     try {
@@ -85,6 +105,12 @@ export default function Probe() {
       await store.current.remove();
       setBytes(0);
       setResult(null);
+      setDisk(inspectDisk());
+    });
+
+  const inspect = () =>
+    run("確認", async () => {
+      setDisk(inspectDisk());
     });
 
   const done = bytes >= TARGET_BYTES;
@@ -156,9 +182,35 @@ export default function Probe() {
         )}
       </Pressable>
 
+      <Pressable
+        style={[styles.button, styles.secondary, busy && styles.buttonDisabled]}
+        onPress={inspect}
+        disabled={busy}
+      >
+        {running === "確認" ? (
+          <ActivityIndicator color="#0a7ea4" />
+        ) : (
+          <Text style={[styles.buttonText, styles.secondaryText]}>
+            実ファイルを確認する
+          </Text>
+        )}
+      </Pressable>
+
+      {disk.length > 0 && (
+        <View style={styles.card}>
+          {disk.map((entry) => (
+            <Row
+              key={entry.name}
+              label={entry.name}
+              value={entry.bytes >= MB ? format(entry.bytes) : `${entry.bytes} B`}
+            />
+          ))}
+        </View>
+      )}
+
       <Text style={styles.note}>
         中身は randomblob（無意味なランダムデータ）。関東 7 県のデータではない。
-        確認が済んだら必ず削除すること。
+        確認が済んだら必ず削除すること。probe.db が一覧から消えていれば削除できている。
       </Text>
 
       {error && (
