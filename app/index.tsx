@@ -28,6 +28,9 @@ export default function Index() {
   const [here, setHere] = useState<{ lat: number; lon: number } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [destination, setDestination] = useState<LatLon | null>(null);
+  /** 出発地。null なら現在地を使う */
+  const [origin, setOrigin] = useState<LatLon | null>(null);
+  const [tapTarget, setTapTarget] = useState<"目的地" | "出発地">("目的地");
   const [plan, setPlan] = useState<PlanResult | null>(null);
   const [searching, setSearching] = useState(false);
 
@@ -63,38 +66,55 @@ export default function Index() {
     locate();
   }, [locate]);
 
-  /** 地図をタップした地点まで経路を引く。F-4 */
-  const propose = useCallback(
-    async (to: LatLon) => {
-      if (!here) {
-        setMessage("現在地が分からないと経路を引けない。");
-        return;
-      }
-      setDestination(to);
-      setPlan(null);
-      setSearching(true);
-      try {
-        const db = await openStore();
-        setPlan(await planRoute(db, here, to));
-      } catch (e) {
-        setMessage(e instanceof Error ? e.message : String(e));
-      } finally {
-        setSearching(false);
-      }
-    },
-    [here],
-  );
+  /** 実際の出発地。指定が無ければ現在地 */
+  const start = origin ?? here;
 
+  const propose = useCallback(async (from: LatLon, to: LatLon) => {
+    setPlan(null);
+    setSearching(true);
+    try {
+      const db = await openStore();
+      setPlan(await planRoute(db, from, to));
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSearching(false);
+    }
+  }, []);
+
+  /**
+   * 地図をタップした地点を、出発地か目的地に設定する。F-4
+   *
+   * 気になるスポットをタップしてそのまま行き先にできる。
+   * Apple Maps では POI の名前は取れない（onPoiClick は Google Maps 限定）が、
+   * 座標が取れれば目的地としては足りる。
+   */
   const onMapPress = useCallback(
     (event: MapPressEvent) => {
       const { latitude, longitude } = event.nativeEvent.coordinate;
-      propose({ lat: latitude, lon: longitude });
+      const point = { lat: latitude, lon: longitude };
+
+      if (tapTarget === "出発地") {
+        setOrigin(point);
+        setTapTarget("目的地");
+        if (destination) propose(point, destination);
+        return;
+      }
+
+      setDestination(point);
+      if (!start) {
+        setMessage("現在地が分からない。出発地を指定するか、位置情報を許可する。");
+        return;
+      }
+      propose(start, point);
     },
-    [propose],
+    [destination, propose, start, tapTarget],
   );
 
   const clear = useCallback(() => {
     setDestination(null);
+    setOrigin(null);
+    setTapTarget("目的地");
     setPlan(null);
   }, []);
 
@@ -108,6 +128,13 @@ export default function Index() {
       >
         {here && (
           <Marker coordinate={{ latitude: here.lat, longitude: here.lon }} title="現在地" />
+        )}
+        {origin && (
+          <Marker
+            coordinate={{ latitude: origin.lat, longitude: origin.lon }}
+            title="出発地"
+            pinColor="#2e9e4f"
+          />
         )}
         {destination && (
           <Marker
@@ -182,6 +209,31 @@ export default function Index() {
         </View>
       )}
 
+      <View style={styles.picker}>
+        <Text style={styles.pickerLabel}>
+          タップ先: <Text style={styles.pickerValue}>{tapTarget}</Text>
+        </Text>
+        <Pressable
+          style={({ pressed }) => [styles.toggle, pressed && styles.linkPressed]}
+          onPress={() => setTapTarget(tapTarget === "目的地" ? "出発地" : "目的地")}
+        >
+          <Text style={styles.linkText}>
+            {tapTarget === "目的地" ? "出発地を指定" : "目的地を指定"}
+          </Text>
+        </Pressable>
+        {origin && (
+          <Pressable
+            style={({ pressed }) => [styles.toggle, pressed && styles.linkPressed]}
+            onPress={() => {
+              setOrigin(null);
+              if (destination && here) propose(here, destination);
+            }}
+          >
+            <Text style={styles.linkText}>現在地から</Text>
+          </Pressable>
+        )}
+      </View>
+
       <View style={styles.footer}>
         <Pressable
           style={({ pressed }) => [styles.link, pressed && styles.linkPressed]}
@@ -234,6 +286,32 @@ const styles = StyleSheet.create({
   },
   resultMain: { fontSize: 20, fontWeight: "700", color: "#222" },
   resultSub: { fontSize: 12, color: "#666", textAlign: "center" },
+  picker: {
+    position: "absolute",
+    bottom: 104,
+    left: 16,
+    right: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  pickerLabel: {
+    flex: 1,
+    fontSize: 13,
+    color: "#333",
+    backgroundColor: "rgba(255,255,255,0.92)",
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    overflow: "hidden",
+  },
+  pickerValue: { fontWeight: "700", color: "#0a7ea4" },
+  toggle: {
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
   retry: {
     backgroundColor: "#0a7ea4",
     borderRadius: 8,
