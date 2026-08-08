@@ -255,7 +255,7 @@ Step 1 で決めたスキーマのまま、関東全域分を書き出す。
 
 **完了の定義:** DB ファイルが生成され、Mac 上で任意の 2 地点の経路が引ける。
 
-**実測: 674 MB / way 236 万 / node 1,193 万 / タイル 8,555 / 約 8 分**（[詳細](./design.md#実際に作った結果2026-08-08-実測)）。
+**実測: 678 MB / way 236 万 / node 1,193 万 / タイル 8,555 / 約 8 分**（[詳細](./design.md#実際に作った結果2026-08-08-実測)）。
 Mac 側の確認は `npx tsx scripts/route-check.ts ~/Downloads/walk.db <出発 lat> <lon> <目的 lat> <lon>`。
 
 **ポイント**
@@ -281,7 +281,7 @@ npx expo start                                    # 別のターミナルで
 
 - **進捗は `expo-file-system/legacy` の `createDownloadResumable` で出す。**
   新しい `File.downloadFileAsync` には進捗のコールバックが無く、
-  674MB を無言で待つことになる（止まったのか進んでいるのか分からない）
+  678MB を無言で待つことになる（止まったのか進んでいるのか分からない）
 - 空き容量は `Paths.availableDiskSpace`。
   **`getFreeDiskStorageAsync` は SDK 54 で実行時に例外を投げる**
 - **入れ替える前に接続を閉じる**（`closeStore`）。開いたままのファイルは消せない

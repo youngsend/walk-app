@@ -49,7 +49,7 @@ flowchart TB
             GR["graph"]
             RT["route"]
         end
-        SQL[("walk.db<br/>関東 7 県 670MB")]
+        SQL[("walk.db<br/>関東 7 県 678MB")]
     end
 
     GF --> PRE
@@ -536,15 +536,16 @@ https://download.geofabrik.de/asia/japan/kanto-latest.osm.pbf   … 461 MB（実
 | way | 2,358,221（PBF の 9,766,884 本のうち 24%） |
 | node | 11,928,292（PBF の 60,842,984 個のうち 20%） |
 | タイル | 8,555 |
-| **ファイルサイズ** | **674 MB** |
+| **ファイルサイズ** | **678 MB** |
 | 生成時間 | 約 8 分（Node.js v22 / macOS 12） |
 | 平均密度 | **0.021 MB/km²**（32,432 km²） |
 
 密集市街地の実測は 0.103 MB/km² だが、関東 7 県は面積で見ると山地・農地が大半のため、
 全域の加重平均はその 5 分の 1 になる。
 
-**[Expo Go で確認できているのは 900MB まで](./development-plan.md#1-4-expo-go-が-900mb-の-db-を扱えるか確かめる)で、
-674 MB はその内側に収まる**（[環境制約](./requirements.md#環境制約)）。
+**実機で検証済み（2026-08-09）。** この DB を転送し、Expo Go 上の `expo-sqlite` から
+開いて way / node / タイル数が返ることを確認した。
+ネイティブビルドが必要になる線は消えた（[環境制約](./requirements.md#環境制約)）。
 
 ### 3.3 前処理
 
