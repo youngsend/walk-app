@@ -1,7 +1,7 @@
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import MapView, { MapPressEvent, Marker, Polyline } from "react-native-maps";
 
 import { LatLon } from "@/lib/graph";
@@ -33,7 +33,8 @@ export default function Index() {
   const [tapTarget, setTapTarget] = useState<"目的地" | "出発地">("目的地");
   const [plan, setPlan] = useState<PlanResult | null>(null);
   const [searching, setSearching] = useState(false);
-  const [open, setOpen] = useState(true);
+  // 既定は畳む。地図をできるだけ広く見せる
+  const [open, setOpen] = useState(false);
   /** 下のパネルの高さ。地図をそのぶん下げるのに使う */
   const [panelHeight, setPanelHeight] = useState(0);
 
@@ -167,7 +168,6 @@ export default function Index() {
         onLayout={(e) => setPanelHeight(e.nativeEvent.layout.height)}
       >
         <Pressable style={styles.handle} onPress={() => setOpen(!open)}>
-          <View style={styles.grip} />
           <Text style={styles.handleText}>
             {searching
               ? "経路を探索中…"
@@ -186,27 +186,20 @@ export default function Index() {
 
         {open && (
           <View style={styles.body}>
-            {searching && <ActivityIndicator color="#0a7ea4" />}
-
             {plan?.ok && !searching && (
-              <>
-                <Text style={styles.sub}>
-                  {plan.breakdown
-                    .slice(0, 3)
-                    .map(
-                      ([type, m]) => `${type} ${((m / plan.distanceM) * 100).toFixed(0)}%`,
-                    )
-                    .join(" / ")}
-                </Text>
-                <Text style={styles.dim}>
-                  タイル {plan.tileCount} 枚・読込 {plan.timings.loadMs}ms・構築{" "}
-                  {plan.timings.buildMs}ms・探索 {plan.timings.searchMs}ms
-                </Text>
-              </>
+              <Text style={styles.dim}>
+                {plan.breakdown
+                  .slice(0, 3)
+                  .map(([type, m]) => `${type} ${((m / plan.distanceM) * 100).toFixed(0)}%`)
+                  .join(" / ")}
+                {"  ·  "}
+                {plan.tileCount}枚 / 読{plan.timings.loadMs} 構{plan.timings.buildMs} 探
+                {plan.timings.searchMs}ms
+              </Text>
             )}
 
             {plan && !plan.ok && !searching && (
-              <Text style={styles.sub}>
+              <Text style={styles.dim}>
                 {plan.reason === "道路網なし"
                   ? "この辺りの道路網が入っていない。「投入」から入れる。"
                   : "川や線路で分断されているかもしれない。"}
@@ -214,7 +207,7 @@ export default function Index() {
             )}
 
             {(status === "拒否" || status === "失敗") && message && (
-              <Text style={styles.sub}>{message}</Text>
+              <Text style={styles.dim}>{message}</Text>
             )}
 
             <View style={styles.row}>
@@ -223,7 +216,7 @@ export default function Index() {
                 onPress={() => setTapTarget(tapTarget === "目的地" ? "出発地" : "目的地")}
               >
                 <Text style={styles.chipText}>
-                  タップ先: <Text style={styles.strong}>{tapTarget}</Text>
+                  タップ先<Text style={styles.strong}>{tapTarget}</Text>
                 </Text>
               </Pressable>
               {origin && (
@@ -245,26 +238,23 @@ export default function Index() {
                   <Text style={styles.chipText}>消す</Text>
                 </Pressable>
               )}
-            </View>
-
-            <View style={styles.row}>
               <Pressable
-                style={({ pressed }) => [styles.link, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
                 onPress={locate}
               >
-                <Text style={styles.linkText}>現在地へ</Text>
+                <Text style={styles.chipText}>現在地へ</Text>
               </Pressable>
               <Pressable
-                style={({ pressed }) => [styles.link, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
                 onPress={() => router.push("/network")}
               >
-                <Text style={styles.linkText}>道路網</Text>
+                <Text style={styles.chipText}>道路網</Text>
               </Pressable>
               <Pressable
-                style={({ pressed }) => [styles.link, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
                 onPress={() => router.push("/transfer")}
               >
-                <Text style={styles.linkText}>投入</Text>
+                <Text style={styles.chipText}>投入</Text>
               </Pressable>
             </View>
           </View>
@@ -282,57 +272,36 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(255,255,255,0.97)",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingBottom: 28,
+    backgroundColor: "rgba(255,255,255,0.95)",
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    // ホームインジケータぶんだけ空ける
+    paddingBottom: 22,
     shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: -1 },
   },
   handle: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 10,
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingTop: 7,
+    paddingBottom: 7,
   },
-  grip: {
-    position: "absolute",
-    top: 6,
-    alignSelf: "center",
-    left: "50%",
-    marginLeft: -18,
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#d0d0d0",
-  },
-  handleText: { flex: 1, fontSize: 17, fontWeight: "700", color: "#222", marginTop: 6 },
-  chevron: { fontSize: 12, color: "#888", marginTop: 6 },
-  body: { paddingHorizontal: 16, gap: 10 },
-  sub: { fontSize: 13, color: "#555" },
-  dim: { fontSize: 11, color: "#999" },
-  row: { flexDirection: "row", gap: 8 },
+  handleText: { flex: 1, fontSize: 14, fontWeight: "600", color: "#222" },
+  chevron: { fontSize: 10, color: "#999" },
+  body: { paddingHorizontal: 14, paddingBottom: 4, gap: 8 },
+  dim: { fontSize: 11, color: "#888" },
+  row: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   chip: {
     backgroundColor: "#eef6f9",
-    borderRadius: 8,
-    paddingVertical: 9,
-    paddingHorizontal: 12,
+    borderRadius: 7,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
   },
-  chipText: { fontSize: 13, color: "#0a7ea4" },
+  chipText: { fontSize: 12, color: "#0a7ea4" },
   strong: { fontWeight: "700" },
-  link: {
-    flex: 1,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#0a7ea4",
-    borderRadius: 8,
-    paddingVertical: 11,
-    alignItems: "center",
-  },
-  linkText: { color: "#0a7ea4", fontSize: 15, fontWeight: "600" },
   pressed: { opacity: 0.6 },
 });
