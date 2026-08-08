@@ -131,6 +131,27 @@ describe("createProbeStore", () => {
     expect(files.list()).toEqual(["walk.db"]);
   });
 
+  it("ファイル削除が例外を投げても、残りを続けて報告する", async () => {
+    const { sqlite, present } = fakeSqlite({ deleteActuallyWorks: false });
+    present.add("probe.db");
+    present.add("probe.db-wal");
+    const flaky: ProbeFiles = {
+      list: () => [...present],
+      delete: (name) => {
+        if (name === "probe.db") throw new Error("使用中");
+        present.delete(name);
+      },
+    };
+    const store = createProbeStore(sqlite, "probe.db", flaky);
+
+    const report = await store.remove();
+
+    // 片方が失敗しても、もう片方は消す
+    expect(report.forceDeleted).toEqual(["probe.db-wal"]);
+    expect(report.remaining).toEqual(["probe.db"]);
+    expect(report.error).toMatch(/使用中/);
+  });
+
   it("それでも消えなければ、残っているものを報告する", async () => {
     const { sqlite, present } = fakeSqlite({ deleteActuallyWorks: false });
     present.add("probe.db");

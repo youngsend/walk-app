@@ -84,15 +84,22 @@ export function createProbeStore(
 
     // 消えたと言われても信じず、ディスクを見る
     const forceDeleted: string[] = [];
+    const failures: string[] = [];
     for (const file of relatedTo(name, files.list())) {
-      files.delete(file);
-      forceDeleted.push(file);
+      try {
+        files.delete(file);
+        forceDeleted.push(file);
+      } catch (e) {
+        // 1 つ失敗しても残りは消す
+        failures.push(`${file}: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
 
+    const messages = [error, ...failures].filter(Boolean);
     return {
       forceDeleted,
       remaining: relatedTo(name, files.list()),
-      error,
+      error: messages.length > 0 ? messages.join("\n") : undefined,
     };
   }
 

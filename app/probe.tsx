@@ -50,6 +50,12 @@ const probeFiles: ProbeFiles = {
   delete: (name) => new File(SQLite.defaultDatabaseDirectory, name).delete(),
 };
 
+/**
+ * モジュール直下に置く。useRef だと Fast Refresh をまたいで
+ * **古い実装のストアが保持され**、直したコードが使われない。
+ */
+const store = createProbeStore(SQLite as unknown as ProbeSqlite, PROBE_DB, probeFiles);
+
 export default function Probe() {
   const [disk, setDisk] = useState<DiskEntry[]>([]);
   const [bytes, setBytes] = useState(0);
@@ -60,13 +66,8 @@ export default function Probe() {
 
   const busy = running !== null;
 
-  /** 開閉と削除の順序は lib/probe-store.ts が持つ（テスト済み）。 */
-  const store = useRef(
-    createProbeStore(SQLite as unknown as ProbeSqlite, PROBE_DB, probeFiles),
-  );
-
   async function open(): Promise<Database> {
-    const db = await store.current.open();
+    const db = await store.open();
     await initProbe(db);
     return db;
   }
@@ -110,7 +111,7 @@ export default function Probe() {
 
   const remove = () =>
     run("削除", async () => {
-      const report = await store.current.remove();
+      const report = await store.remove();
       setBytes(0);
       setResult(null);
       setDisk(inspectDisk());
@@ -122,6 +123,8 @@ export default function Probe() {
         );
       } else if (report.forceDeleted.length > 0) {
         setResult(`ファイルを直接削除: ${report.forceDeleted.join(", ")}`);
+      } else {
+        setResult("削除済み（残っているファイルは無い）");
       }
     });
 
@@ -142,6 +145,7 @@ export default function Probe() {
       </Text>
 
       <View style={styles.card}>
+        <Row label="保存先" value={String(SQLite.defaultDatabaseDirectory ?? "(不明)")} />
         <Row label="現在のサイズ" value={format(bytes)} />
         <Row label="目標" value={format(TARGET_BYTES)} />
         <Row label="到達" value={done ? "はい" : "いいえ"} />
