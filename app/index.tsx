@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -8,20 +8,26 @@ import {
   View,
 } from "react-native";
 
+import { hasTile, loadTiles, savedTiles, saveTile } from "@/lib/db";
 import { buildGraph, neighbors } from "@/lib/graph";
 import { countByHighway, fetchTile, TileData } from "@/lib/overpass";
-import { tileAt, tileBounds, tileKey } from "@/lib/tiles";
+import { openStore } from "@/lib/store";
+import { tileAt, tileBounds, TileId, tileKey } from "@/lib/tiles";
 
 /** 開発時の初期エリア: 武蔵小山付近（品川区・目黒区の境界）。docs/design.md#21-タイルの定義 */
 const DEV_LAT = 35.62;
 const DEV_LON = 139.7;
 
+type Source = "取得" | "保存済み" | null;
+
 export default function Index() {
   const [data, setData] = useState<TileData | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [source, setSource] = useState<Source>(null);
+  const [stored, setStored] = useState<TileId[]>([]);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const tile = tileAt(DEV_LAT, DEV_LON);
+  const tile = useMemo(() => tileAt(DEV_LAT, DEV_LON), []);
   const bounds = tileBounds(tile);
 
   const graph = useMemo(() => (data ? buildGraph(data) : null), [data]);
@@ -44,17 +50,49 @@ export default function Index() {
     };
   }, [graph]);
 
-  async function load() {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await fetchTile(tile));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }
+  const run = useCallback(
+    async (fn: () => Promise<void>) => {
+      setBusy(true);
+      setError(null);
+      try {
+        await fn();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [],
+  );
+
+  /** 起動時に、保存済みなら通信せずに復元する。1-3 の完了の定義。 */
+  useEffect(() => {
+    run(async () => {
+      const db = await openStore();
+      setStored(await savedTiles(db));
+      if (await hasTile(db, tile)) {
+        setData(await loadTiles(db, [tile]));
+        setSource("保存済み");
+      }
+    });
+  }, [run, tile]);
+
+  const download = () =>
+    run(async () => {
+      const db = await openStore();
+      const fetched = await fetchTile(tile);
+      await saveTile(db, tile, fetched);
+      setData(fetched);
+      setSource("取得");
+      setStored(await savedTiles(db));
+    });
+
+  const reloadFromStore = () =>
+    run(async () => {
+      const db = await openStore();
+      setData(await loadTiles(db, [tile]));
+      setSource("保存済み");
+    });
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -64,18 +102,30 @@ export default function Index() {
         <Row label="タイル" value={tileKey(tile)} />
         <Row label="南西" value={`${bounds.south}, ${bounds.west}`} />
         <Row label="北東" value={`${bounds.north}, ${bounds.east}`} />
+        <Row label="保存済みタイル" value={stored.map(tileKey).join(", ") || "なし"} />
+        <Row label="表示中のデータ" value={source ?? "なし"} />
       </View>
 
       <Pressable
-        style={[styles.button, loading && styles.buttonDisabled]}
-        onPress={load}
-        disabled={loading}
+        style={[styles.button, busy && styles.buttonDisabled]}
+        onPress={download}
+        disabled={busy}
       >
-        {loading ? (
+        {busy ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={styles.buttonText}>Overpass から取得</Text>
+          <Text style={styles.buttonText}>Overpass から取得して保存</Text>
         )}
+      </Pressable>
+
+      <Pressable
+        style={[styles.button, styles.buttonSecondary, busy && styles.buttonDisabled]}
+        onPress={reloadFromStore}
+        disabled={busy}
+      >
+        <Text style={[styles.buttonText, styles.buttonSecondaryText]}>
+          保存済みから読み込む（通信なし）
+        </Text>
       </Pressable>
 
       <Text style={styles.note}>
@@ -97,7 +147,7 @@ export default function Index() {
 
       {graph && stats && (
         <>
-          <Text style={styles.subheading}>グラフ（1-2）</Text>
+          <Text style={styles.subheading}>グラフ</Text>
           <View style={styles.card}>
             <Row
               label="交差点ノード"
@@ -195,6 +245,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minHeight: 50,
   },
+  buttonSecondary: { backgroundColor: "#fff" },
+  buttonSecondaryText: { color: "#0a7ea4" },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
   note: { fontSize: 12, color: "#888", textAlign: "center" },
