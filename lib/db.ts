@@ -1,5 +1,6 @@
 import { OsmNode, OsmWay, TileData } from "./osm";
-import { TileId } from "./tiles";
+import { Poi } from "./poi";
+import { TileId, tileAt } from "./tiles";
 
 /**
  * 道路網をタイル単位で端末内に保存する。docs/design.md#4-データ保存
@@ -43,10 +44,12 @@ export type Database = {
  * 4: 歩道が沿っている幹線の種別（along）を持たせた。幹線に減点しても
  *    歩行者は並走する歩道を通るので、歩道が親の係数を継がないと
  *    減点が丸ごと迂回される
+ * 5: 名前つきの地点（pois）を持たせた。Apple Maps からは POI の名前を
+ *    取れないので、タップ地点の名前を出すには自前で持つしかない
  */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
-const TABLES = ["tiles", "nodes", "ways", "way_tiles", "node_tiles"];
+const TABLES = ["tiles", "nodes", "ways", "way_tiles", "node_tiles", "pois"];
 
 /**
  * 今の DB が使える形かどうか。
@@ -117,6 +120,18 @@ export async function initSchema(db: Database): Promise<void> {
     -- 主キーは way_id が先頭なので、タイル側から引くにはこれが要る。
     -- 無いと loadTiles が ways を全走査する（関東全域で 236 万行）
     CREATE INDEX IF NOT EXISTS way_tiles_xy ON way_tiles (x, y);
+
+    -- 名前つきの地点。タップした場所の名前を出すために使う。
+    -- 点（node）と面（way）の両方が入る。面は重心にしてある
+    CREATE TABLE IF NOT EXISTS pois (
+      x INTEGER NOT NULL,
+      y INTEGER NOT NULL,
+      lat REAL NOT NULL,
+      lon REAL NOT NULL,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS pois_xy ON pois (x, y);
   `);
 
   // 使わなくなった表を残さない
@@ -164,6 +179,34 @@ export async function saveTile(
       tile.y,
     );
   }
+}
+
+/** 名前つきの地点を保存する。タイルは座標から決まる。 */
+export async function savePois(db: Database, pois: Poi[]): Promise<void> {
+  for (const p of pois) {
+    const tile = tileAt(p.lat, p.lon);
+    await db.runAsync(
+      "INSERT INTO pois (x, y, lat, lon, name, kind) VALUES (?, ?, ?, ?, ?, ?)",
+      tile.x,
+      tile.y,
+      p.lat,
+      p.lon,
+      p.name,
+      p.kind,
+    );
+  }
+}
+
+/** 指定したタイルにある地点。42 枚ぶん読むと多すぎるので、近くだけ引く。 */
+export async function loadPois(db: Database, tiles: TileId[]): Promise<Poi[]> {
+  if (tiles.length === 0) return [];
+
+  const placeholders = tiles.map(() => "(? , ?)").join(", ");
+  const params = tiles.flatMap((t) => [t.x, t.y]);
+  return db.getAllAsync<Poi>(
+    `SELECT lat, lon, name, kind FROM pois WHERE (x, y) IN (VALUES ${placeholders})`,
+    ...params,
+  );
 }
 
 export async function hasTile(db: Database, tile: TileId): Promise<boolean> {

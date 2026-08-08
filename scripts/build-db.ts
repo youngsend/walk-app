@@ -63,6 +63,10 @@ db.exec(`
   CREATE TABLE needed_nodes (id INTEGER PRIMARY KEY);
   -- 幹線。歩けない trunk / motorway も含む。歩道が沿う相手を探すのに使う
   CREATE TABLE arterials (id INTEGER PRIMARY KEY, node_ids TEXT NOT NULL, highway TEXT NOT NULL);
+  -- 名前つきの地点。タップした場所の名前を出すのに使う
+  CREATE TABLE pois (x INTEGER NOT NULL, y INTEGER NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL);
+  -- 名前つきの面。重心を出すため、座標が揃うまで控えておく
+  CREATE TABLE poi_ways (id INTEGER PRIMARY KEY, node_ids TEXT NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL);
 `);
 
 /** PBF を流して、種類ごとに渡す。 */
@@ -87,6 +91,9 @@ async function pass1CollectWays() {
   const insertArterial = db.prepare(
     "INSERT OR REPLACE INTO arterials (id, node_ids, highway) VALUES (?, ?, ?)",
   );
+  const insertPoiWay = db.prepare(
+    "INSERT OR REPLACE INTO poi_ways (id, node_ids, name, kind) VALUES (?, ?, ?, ?)",
+  );
 
   let seen = 0;
   let kept = 0;
@@ -97,6 +104,16 @@ async function pass1CollectWays() {
     seen++;
     const tags = item.tags ?? {};
     const refs = item.refs ?? [];
+
+    // 名前つきの面（公園・駅・施設）。重心を出すのは座標が揃ってから。
+    // 公園は 30,041 件が面で描かれているので、点だけでは足りない
+    if (refs.length >= 2 && !tags.highway) {
+      const kind = poiKind(tags);
+      if (kind) {
+        insertPoiWay.run(item.id, JSON.stringify(refs), tags.name, kind);
+        for (const ref of refs) insertNeeded.run(ref);
+      }
+    }
 
     // 幹線は歩けなくても控える。歩道がどの道路に沿っているかの判定に使う。
     // trunk は別線歩道の付与率が最も高い（7.0%）ので落とせない
@@ -139,13 +156,26 @@ async function pass2CollectNodes() {
   const insertNode = db.prepare(
     "INSERT OR REPLACE INTO nodes (id, lat, lon) VALUES (?, ?, ?)",
   );
+  const insertPoi = db.prepare(
+    "INSERT INTO pois (x, y, lat, lon, name, kind) VALUES (?, ?, ?, ?, ?, ?)",
+  );
 
   let seen = 0;
   let kept = 0;
+  let pois = 0;
   db.exec("BEGIN");
   await readPbf((item) => {
     if (item.type !== "node") return;
     seen++;
+
+    // 名前つきの点。道路に使われていなくても拾う
+    const kind = poiKind(item.tags ?? {});
+    if (kind) {
+      const tile = tileAt(item.lat!, item.lon!);
+      insertPoi.run(tile.x, tile.y, item.lat!, item.lon!, item.tags!.name, kind);
+      pois++;
+    }
+
     if (!isNeeded.get(item.id)) return;
     insertNode.run(item.id, item.lat!, item.lon!);
     kept++;
@@ -157,7 +187,9 @@ async function pass2CollectNodes() {
     }
   });
   db.exec("COMMIT");
-  log(`2 パス目おわり: ${seen.toLocaleString()} 個中 ${kept.toLocaleString()} 個を採用`);
+  log(
+    `2 パス目おわり: ${seen.toLocaleString()} 個中 ${kept.toLocaleString()} 個を採用、名前つきの点 ${pois.toLocaleString()} 件`,
+  );
 }
 
 /**
@@ -236,6 +268,27 @@ function markSidepaths() {
   }
 }
 
+/**
+ * 名前つきの地点として拾うタグ。**先に来たものを種別にする。**
+ * place（町丁名）は店や公園が無いときの受け皿で、探す距離が違う（lib/poi.ts）。
+ */
+const POI_KEYS = [
+  "amenity",
+  "shop",
+  "leisure",
+  "tourism",
+  "railway",
+  "historic",
+  "natural",
+  "office",
+  "place",
+];
+
+function poiKind(tags: Record<string, string>): string | undefined {
+  if (!tags.name) return undefined;
+  return POI_KEYS.find((k) => tags[k]);
+}
+
 const ARTERIAL_HIGHWAY = new Set([
   "motorway",
   "trunk",
@@ -260,6 +313,37 @@ function coordsFor(
     coords.push(c);
   }
   return coords;
+}
+
+/** 名前つきの面を重心にして pois に入れる。公園や駅は面で描かれている。 */
+function centroidPois() {
+  log("名前つきの面を重心にする");
+  const coordsOf = db.prepare("SELECT lat, lon FROM nodes WHERE id = ?");
+  const insertPoi = db.prepare(
+    "INSERT INTO pois (x, y, lat, lon, name, kind) VALUES (?, ?, ?, ?, ?, ?)",
+  );
+
+  let done = 0;
+  let dropped = 0;
+  db.exec("BEGIN");
+  for (const row of db.prepare("SELECT node_ids, name, kind FROM poi_ways").iterate() as Iterable<{
+    node_ids: string;
+    name: string;
+    kind: string;
+  }>) {
+    const coords = coordsFor(JSON.parse(row.node_ids), coordsOf);
+    if (coords.length === 0) {
+      dropped++;
+      continue;
+    }
+    const lat = coords.reduce((a, c) => a + c.lat, 0) / coords.length;
+    const lon = coords.reduce((a, c) => a + c.lon, 0) / coords.length;
+    const tile = tileAt(lat, lon);
+    insertPoi.run(tile.x, tile.y, lat, lon, row.name, row.kind);
+    done++;
+  }
+  db.exec("COMMIT");
+  log(`面おわり: ${done.toLocaleString()} 件（座標が揃わず落としたのが ${dropped.toLocaleString()} 件）`);
 }
 
 function assignTiles() {
@@ -312,11 +396,13 @@ function finish() {
   db.exec("DELETE FROM nodes WHERE id NOT IN (SELECT value FROM ways, json_each(ways.node_ids))");
   db.exec("DROP TABLE needed_nodes");
   db.exec("DROP TABLE arterials");
+  db.exec("DROP TABLE poi_ways");
   // タイル側から way を引く索引。lib/db.ts の initSchema と同じものを、
   // ここで作っておく。端末に作らせると初回起動が数分になり、
   // 「端末上での事前処理は 5 分以内」(requirements.md#f-10) を脅かす
   db.exec("CREATE INDEX IF NOT EXISTS way_tiles_xy ON way_tiles (x, y)");
-  db.exec(`PRAGMA user_version = 4`);
+  db.exec("CREATE INDEX IF NOT EXISTS pois_xy ON pois (x, y)");
+  db.exec(`PRAGMA user_version = 5`);
   db.exec("VACUUM");
 
   const count = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
@@ -329,6 +415,7 @@ function finish() {
   console.log(`  way        : ${count("SELECT COUNT(*) n FROM ways").toLocaleString()}`);
   console.log(`  node       : ${count("SELECT COUNT(*) n FROM nodes").toLocaleString()}`);
   console.log(`  タイル     : ${count("SELECT COUNT(*) n FROM tiles").toLocaleString()}`);
+  console.log(`  地点       : ${count("SELECT COUNT(*) n FROM pois").toLocaleString()}`);
   console.log(`  サイズ     : ${(bytes / 1024 / 1024).toFixed(0)} MB`);
   console.log(`  かかった時間: ${elapsed()}`);
 
@@ -348,6 +435,7 @@ async function main() {
   await pass1CollectWays();
   await pass2CollectNodes();
   markSidepaths();
+  centroidPois();
   assignTiles();
   finish();
   db.close();

@@ -7,7 +7,10 @@ import MapView, { MapPressEvent, Marker, Polyline } from "react-native-maps";
 import { LatLon } from "@/lib/graph";
 import { clearWalked, loadWalked, markWalked } from "@/lib/history";
 import { PlanResult, planRoute } from "@/lib/plan";
+import { NearbyPoi, describePoint } from "@/lib/poi";
+import { loadPois } from "@/lib/db";
 import { Region, regionAround } from "@/lib/region";
+import { tileAt, tilesAround } from "@/lib/tiles";
 import { openHistoryStore, openStore } from "@/lib/store";
 
 /**
@@ -45,6 +48,8 @@ export default function Index() {
    */
   const [useHistory, setUseHistory] = useState(true);
   const [walkedCount, setWalkedCount] = useState(0);
+  /** タップした場所の名前。Apple Maps からは取れないので DB から引く */
+  const [destinationName, setDestinationName] = useState<NearbyPoi | null>(null);
 
   const locate = useCallback(async () => {
     setStatus("確認中");
@@ -101,6 +106,18 @@ export default function Index() {
     [useHistory, walkedCount],
   );
 
+  /** タップした場所の名前を DB から引く。周囲 3×3 タイルで足りる */
+  const describe = useCallback(async (point: LatLon) => {
+    setDestinationName(null);
+    try {
+      const db = await openStore();
+      const pois = await loadPois(db, tilesAround(tileAt(point.lat, point.lon), 1));
+      setDestinationName(describePoint(pois, point) ?? null);
+    } catch {
+      // 名前が出せなくても経路は引ける
+    }
+  }, []);
+
   /** 提案されたルートを歩いたことにする。開発用。Step 8 で実データに置き換わる */
   const markAsWalked = useCallback(async () => {
     if (!plan?.ok || !start || !destination) return;
@@ -137,17 +154,19 @@ export default function Index() {
       }
 
       setDestination(point);
+      describe(point);
       if (!start) {
         setMessage("現在地が分からない。出発地を指定するか、位置情報を許可する。");
         return;
       }
       propose(start, point);
     },
-    [destination, propose, start, tapTarget],
+    [describe, destination, propose, start, tapTarget],
   );
 
   const clear = useCallback(() => {
     setDestination(null);
+    setDestinationName(null);
     setOrigin(null);
     setTapTarget("目的地");
     setPlan(null);
@@ -176,7 +195,8 @@ export default function Index() {
         {destination && (
           <Marker
             coordinate={{ latitude: destination.lat, longitude: destination.lon }}
-            title="目的地"
+            title={destinationName?.name ?? "目的地"}
+            description={destinationName ? `${Math.round(destinationName.distanceM)}m` : undefined}
             pinColor="#0a7ea4"
           />
         )}
@@ -203,7 +223,7 @@ export default function Index() {
             {searching
               ? "経路を探索中…"
               : plan?.ok
-                ? `${(plan.distanceM / 1000).toFixed(2)} km・約 ${plan.minutes} 分`
+                ? `${destinationName ? `${destinationName.name}まで ` : ""}${(plan.distanceM / 1000).toFixed(2)} km・約 ${plan.minutes} 分`
                 : plan && !plan.ok
                   ? plan.reason === "道路網なし"
                     ? "道路網が入っていない"

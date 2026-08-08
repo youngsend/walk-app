@@ -4,7 +4,9 @@ import {
   Database,
   hasTile,
   initSchema,
+  loadPois,
   loadTiles,
+  savePois,
   savedTiles,
   saveTile,
 } from "@/lib/db";
@@ -397,5 +399,47 @@ describe("沿っている幹線の保存", () => {
 
     const loaded = await loadTiles(db, [TILE_A]);
     expect(loaded.ways[0].tags.along).toBeUndefined();
+  });
+});
+
+describe("地点（POI）の保存", () => {
+  const shop = { name: "セブンイレブン", kind: "shop", lat: 35.6205, lon: 139.7005 };
+  const park = { name: "林試の森公園", kind: "leisure", lat: 35.6215, lon: 139.7015 };
+
+  it("地点を保存して、タイル単位で読める", async () => {
+    const db = await fresh();
+    await savePois(db, [shop, park]);
+
+    const loaded = await loadPois(db, [TILE_A]);
+    expect(loaded).toHaveLength(2);
+    expect(loaded.map((p) => p.name).sort()).toEqual(["セブンイレブン", "林試の森公園"]);
+  });
+
+  it("別のタイルの地点は返さない", async () => {
+    // 42 枚ぶん読むと 1 万件を超える。近くだけ引く
+    const db = await fresh();
+    await savePois(db, [shop]);
+
+    expect(await loadPois(db, [TILE_B])).toEqual([]);
+  });
+
+  it("種別と座標がそのまま往復する", async () => {
+    const db = await fresh();
+    await savePois(db, [park]);
+
+    const [loaded] = await loadPois(db, [TILE_A]);
+    expect(loaded).toEqual(park);
+  });
+
+  it("タイルを指定しなければ空を返す", async () => {
+    const db = await fresh();
+    await savePois(db, [shop]);
+    expect(await loadPois(db, [])).toEqual([]);
+  });
+
+  it("地点が入っていない古い DB でも落ちない", async () => {
+    // POI を持たない頃に転送した DB を開いた場合
+    const db = await fresh();
+    expect(await loadPois(db, [TILE_A])).toEqual([]);
   });
 });
