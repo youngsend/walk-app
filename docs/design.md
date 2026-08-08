@@ -22,12 +22,46 @@
 | 画面に見える地図の絵 | Apple Maps | 表示のたび |
 
 **Overpass は道路データを取るためだけのもので、現在地とは無関係。**
-しかも役目は一時的で、[F-10](./requirements.md#f-10-オフラインデータの一括投入) で関東全域を入れたあとは、
-圏外のエリアを足すときにしか使わない。
+しかも**開発中の手段でしかない**。[F-10](./requirements.md#f-10-オフラインデータの一括投入) で関東全域を入れたら、製品としては使わない。
+
+### 実用中の構成
+
+こちらが本番。関東全域を Geofabrik から一括投入したあとの姿。
+**散歩中に道路データの通信は一切起きない。**
+
+```mermaid
+flowchart TB
+    subgraph outside["外部"]
+        GF["Geofabrik<br/>関東 7 県の PBF"]
+        AM["Apple Maps<br/>地図の絵"]
+    end
+
+    subgraph mac["Mac（年 1 回程度）"]
+        PRE["scripts/<br/>PBF → SQLite"]
+    end
+
+    subgraph app["iPhone（Expo Go）"]
+        GPS["GPS / expo-location<br/>自分の位置<br/>（通信しない）"]
+        SCR["画面 app/"]
+        subgraph logic["ロジック lib/"]
+            DB["db"]
+            GR["graph"]
+            RT["route"]
+        end
+        SQL[("walk.db<br/>関東 7 県 約 2.4GB")]
+    end
+
+    GF --> PRE
+    PRE -->|自宅 Wi-Fi・一度きり| SQL
+    SQL --> DB --> GR --> RT --> SCR
+    AM --> SCR
+    GPS --> SCR
+```
 
 ### 開発中の構成
 
-道路網は Overpass からタイル単位で取る。前処理も一括投入もまだ無い。
+前処理も一括投入もまだ無い段階。道路網を Overpass からタイル単位で取る。
+**この経路は製品には残らない。**
 
 ```mermaid
 flowchart TB
@@ -55,58 +89,19 @@ flowchart TB
     GPS --> SCR
 ```
 
-### 実用中の構成
-
-関東全域を Geofabrik から一括投入したあと。**散歩中に道路データの通信は起きない。**
-
-```mermaid
-flowchart TB
-    subgraph outside["外部"]
-        GF["Geofabrik<br/>関東 7 県の PBF"]
-        AM["Apple Maps<br/>地図の絵"]
-        OV["Overpass API<br/>圏外に行ったときだけ"]
-    end
-
-    subgraph mac["Mac（年 1 回程度）"]
-        PRE["scripts/<br/>PBF → SQLite"]
-    end
-
-    subgraph app["iPhone（Expo Go）"]
-        GPS["GPS / expo-location<br/>自分の位置<br/>（通信しない）"]
-        SCR["画面 app/"]
-        subgraph logic["ロジック lib/"]
-            DB["db"]
-            GR["graph"]
-            RT["route"]
-        end
-        SQL[("walk.db<br/>関東 7 県 約 2.4GB")]
-    end
-
-    GF --> PRE
-    PRE -->|自宅 Wi-Fi・一度きり| SQL
-    OV -.->|圏外で明示操作したときだけ| SQL
-    SQL --> DB --> GR --> RT --> SCR
-    AM --> SCR
-    GPS --> SCR
-```
-
 ### 2 つの違い
 
-| | 開発中 | 実用中 |
+| | 実用中 | 開発中 |
 |---|---|---|
-| 道路データの入手 | Overpass（タイル単位） | Geofabrik（一括） |
-| 手元のデータ量 | 数タイル・数百 KB | 関東 7 県・約 2.4GB |
-| 前処理 | 無し | Mac で PBF → SQLite |
-| 散歩中の道路データ通信 | 起きうる | **起きない** |
-| Overpass の役目 | 主役 | 圏外用の逃げ道のみ |
+| 道路データの入手 | Geofabrik（一括） | Overpass（タイル単位） |
+| 手元のデータ量 | 関東 7 県・約 2.4GB | 数タイル・数百 KB |
+| 前処理 | Mac で PBF → SQLite | 無し |
+| **散歩中の道路データ通信** | **起きない** | 起きうる |
+| Overpass | 使わない | 主役 |
 
-**圏外用の通信には条件が付く**（[F-8](./requirements.md#f-8-道路網データの取得)、[非機能要件](./requirements.md#5-非機能要件)）:
-
-- モバイル通信中は**自動取得しない**
-- 自動の通信は **Wi-Fi 接続時のみ**
-- モバイル通信を使うのは、**ユーザーが明示的に指示したときだけ**
-
-散歩中に勝手に通信することはない。
+**関東地方の外では使えない。** 圏外に行ったときに取りに行く逃げ道は設けない
+（[やらないこと](./requirements.md#やらないこと)）。経路が見つからない旨を出すだけにする。
+逃げ道を作ると、散歩中に通信する経路が製品に残ってしまう。
 
 ### データの流れ
 
@@ -141,7 +136,8 @@ sequenceDiagram
 **画面に出る地図（Apple Maps）と、経路探索に使う道路網（OSM）は別物。**
 取得した道路網は画面に描かれない（[画面の地図とは別のデータ](#22-画面の地図とは別のデータ)）。
 
-**通信するのは道路網を入れるときだけ。** 散歩中は経路探索が端末内で完結する。
+**通信するのは道路網を入れるときだけで、それも自宅の Wi-Fi。**
+散歩中は経路探索が端末内で完結する。
 地図タイルの通信だけは Apple Maps 側で起きるが、これは[要件の対象外](./requirements.md#5-非機能要件)。
 
 **現在地の取得に通信は要らない。** GPS は衛星から受信するだけで、
