@@ -94,6 +94,12 @@ export default function Index() {
         >
           <Text style={styles.linkText}>道路網</Text>
         </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.link, pressed && styles.linkPressed]}
+          onPress={() => router.push("/transfer")}
+        >
+          <Text style={styles.linkText}>投入</Text>
+        </Pressable>
       </View>
     </View>
   );

@@ -292,9 +292,29 @@ Mac 上で経路探索を試せるようにしておくと、以降の調整が�
 
 #### 3-3. 端末に転送する
 
-- Mac でローカル HTTP サーバを立てる
-- **転送前に端末の空き容量を確認し、足りなければ開始しない**
-- アプリが自宅 Wi-Fi 経由で DB を取得し、`expo-sqlite` が読める場所に置く
+- Mac でローカル HTTP サーバを立てる → `scripts/serve-db.ts`
+- **転送前に端末の空き容量を確認し、足りなければ開始しない** → `lib/transfer.ts` の `checkSpace`
+- アプリが自宅 Wi-Fi 経由で DB を取得し、`expo-sqlite` が読める場所に置く → `app/transfer.tsx`
+
+**手順**
+
+```bash
+npx tsx scripts/serve-db.ts ~/Downloads/walk.db   # Mac 側。表示された IP を使う
+npx expo start                                    # 別のターミナルで
+```
+
+アプリの「投入」画面に IP を入れて「転送する」。
+`expo-sqlite` の `defaultDatabaseDirectory` に直接落とすので、あとで移動しない。
+
+**実装の注意（実測で決めたこと）**
+
+- **進捗は `expo-file-system/legacy` の `createDownloadResumable` で出す。**
+  新しい `File.downloadFileAsync` には進捗のコールバックが無く、
+  674MB を無言で待つことになる（止まったのか進んでいるのか分からない）
+- 空き容量は `Paths.availableDiskSpace`。
+  **`getFreeDiskStorageAsync` は SDK 54 で実行時に例外を投げる**
+- **入れ替える前に接続を閉じる**（`closeStore`）。開いたままのファイルは消せない
+- `-wal` / `-shm` も一緒に消す。古い DB の断片が残ると開けなくなる
 
 **完了の定義**
 転送後、**機内モードにしても**関東圏内の任意の 2 地点で経路が引ける。
