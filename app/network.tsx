@@ -19,7 +19,10 @@ import {
 } from "@/lib/graph";
 import { countByHighway, TileData } from "@/lib/osm";
 import { openStore } from "@/lib/store";
-import { TileId, tileKey } from "@/lib/tiles";
+import { TileId, tileAt, tileKey, tilesAround } from "@/lib/tiles";
+
+/** 開発時の初期エリア。docs/design.md#21-タイルの定義 */
+const DEV = { lat: 35.62, lon: 139.7 };
 
 /**
  * 端末内の道路網を確認する画面。
@@ -31,6 +34,7 @@ export default function Network() {
   const router = useRouter();
   const [data, setData] = useState<TileData | null>(null);
   const [stored, setStored] = useState<TileId[]>([]);
+  const [totalTiles, setTotalTiles] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,7 +72,12 @@ export default function Network() {
     setError(null);
     try {
       const db = await openStore();
-      const tiles = await savedTiles(db);
+      // 保存済みタイルの枚数だけ数える。関東全域だと 8,000 枚を超えるので、
+      // 読み込むのは開発エリアの周り 3×3 に絞る。
+      // 全部を一度に読むとグラフがメモリに載らない
+      setTotalTiles((await savedTiles(db)).length);
+
+      const tiles = tilesAround(tileAt(DEV.lat, DEV.lon), 1);
       setStored(tiles);
       setData(await loadTiles(db, tiles));
     } catch (e) {
@@ -90,8 +99,8 @@ export default function Network() {
       </Text>
 
       <View style={styles.card}>
-        <Row label="保存済みタイル" value={String(stored.length)} />
-        <Row label="範囲" value={stored.map(tileKey).join(", ") || "なし"} />
+        <Row label="端末内のタイル" value={totalTiles.toLocaleString()} />
+        <Row label="読み込んだ範囲" value={`${stored.map(tileKey).join(", ")}`} />
       </View>
 
       <Pressable

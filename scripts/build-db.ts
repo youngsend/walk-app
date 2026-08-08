@@ -187,6 +187,10 @@ function finish() {
   db.exec("DELETE FROM ways WHERE id NOT IN (SELECT way_id FROM way_tiles)");
   db.exec("DELETE FROM nodes WHERE id NOT IN (SELECT value FROM ways, json_each(ways.node_ids))");
   db.exec("DROP TABLE needed_nodes");
+  // タイル側から way を引く索引。lib/db.ts の initSchema と同じものを、
+  // ここで作っておく。端末に作らせると初回起動が数分になり、
+  // 「端末上での事前処理は 5 分以内」(requirements.md#f-10) を脅かす
+  db.exec("CREATE INDEX IF NOT EXISTS way_tiles_xy ON way_tiles (x, y)");
   db.exec(`PRAGMA user_version = 2`);
   db.exec("VACUUM");
 
@@ -214,8 +218,13 @@ function finish() {
   console.log(`  武蔵小山タイル ${dev.x}/${dev.y} の way: ${devWays.toLocaleString()}（Step 1 の実測は 1,806）`);
 }
 
-await pass1CollectWays();
-await pass2CollectNodes();
-assignTiles();
-finish();
-db.close();
+// トップレベル await は使わない。tsx が CJS に変換するため通らない
+async function main() {
+  await pass1CollectWays();
+  await pass2CollectNodes();
+  assignTiles();
+  finish();
+  db.close();
+}
+
+main();

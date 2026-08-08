@@ -146,6 +146,28 @@ describe("initSchema", () => {
     );
     expect(rows).toEqual([]);
   });
+
+  it("タイルから way を引くのに ways を全走査しない", async () => {
+    // 回帰テスト。way_tiles の主キーは (way_id, x, y) なので、
+    // タイル側から引く索引が別に要る。無いと loadTiles が毎回
+    // ways を頭から舐める。関東全域では 236 万行あり、
+    // 探索 2 秒（requirements.md#5-非機能要件）を到底守れない
+    const db = await fresh();
+
+    const plan = await db.getAllAsync<{ detail: string }>(
+      `EXPLAIN QUERY PLAN
+       SELECT DISTINCT w.id, w.node_ids, w.highway, w.lanes
+         FROM ways w
+         JOIN way_tiles wt ON wt.way_id = w.id
+        WHERE (wt.x, wt.y) IN (VALUES (?, ?))`,
+      TILE_A.x,
+      TILE_A.y,
+    );
+    const details = plan.map((p) => p.detail).join("\n");
+
+    expect(details).not.toContain("SCAN w\n");
+    expect(details).toContain("way_tiles_xy");
+  });
 });
 
 describe("saveTile / hasTile", () => {

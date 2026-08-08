@@ -4,6 +4,7 @@ import {
   distanceMeters,
   edgeNode,
   largestComponentSize,
+  nearestNode,
   neighbors,
   reachableFrom,
 } from "@/lib/graph";
@@ -284,5 +285,33 @@ describe("edgeNode", () => {
 
   it("空のグラフでも落ちない", () => {
     expect(edgeNode(buildGraph(tile([], [])), TILE, "west")).toBeUndefined();
+  });
+});
+
+describe("nearestNode", () => {
+  // grid は lat が 0.001 度（約 111m）刻み、lon は 139.7 で固定。
+  // 2 本の way がノード 3 を共有するので、グラフに載るのは 1 / 3 / 5 の 3 つ。
+  // 途中の形状点（2 と 4）は交差点ではないためノードにならない
+  const graph = buildGraph(
+    tile([way(1, [1, 2, 3]), way(2, [3, 4, 5])], grid(5)),
+  );
+
+  it("一番近いノードを返す", () => {
+    // ノード 3（lat 35.622）のすぐ脇。形状点しか無い側には寄らない
+    expect(nearestNode(graph, { lat: 35.6221, lon: 139.7001 })).toBe(3);
+  });
+
+  it("ノードと同じ座標ならそのノードを返す", () => {
+    expect(nearestNode(graph, { lat: 35.62, lon: 139.7 })).toBe(1);
+  });
+
+  it("遠く離れた点でも一番近いノードを返す", () => {
+    // 南に大きく外れた場所。端のノードが選ばれる
+    expect(nearestNode(graph, { lat: 35.0, lon: 139.7 })).toBe(1);
+  });
+
+  it("空のグラフでは undefined を返す", () => {
+    const empty = buildGraph(tile([], []));
+    expect(nearestNode(empty, { lat: 35.62, lon: 139.7 })).toBeUndefined();
   });
 });

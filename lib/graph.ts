@@ -183,6 +183,26 @@ export function largestComponentSize(graph: Graph): number {
 }
 
 /**
+ * 指定した地点に最も近い交差点ノード。
+ *
+ * 現在地も、地図をタップした目的地も、道の上には無い。
+ * 探索はノードからノードへ辿るので、両端をグラフに載せる必要がある。
+ */
+export function nearestNode(graph: Graph, point: LatLon): number | undefined {
+  let best: number | undefined;
+  let bestDistance = Infinity;
+
+  for (const [id, node] of graph.nodes) {
+    const d = distanceMeters(point, node);
+    if (d < bestDistance) {
+      bestDistance = d;
+      best = id;
+    }
+  }
+  return best;
+}
+
+/**
  * タイルの中で最も西／東にあるノード。
  *
  * 隣接タイルが繋がっているかを「一方の端から他方の端まで辿れるか」で

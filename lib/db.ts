@@ -103,6 +103,10 @@ export async function initSchema(db: Database): Promise<void> {
       y INTEGER NOT NULL,
       PRIMARY KEY (way_id, x, y)
     );
+
+    -- 主キーは way_id が先頭なので、タイル側から引くにはこれが要る。
+    -- 無いと loadTiles が ways を全走査する（関東全域で 236 万行）
+    CREATE INDEX IF NOT EXISTS way_tiles_xy ON way_tiles (x, y);
   `);
 
   // 使わなくなった表を残さない

@@ -33,6 +33,22 @@ export function parseTileKey(key: string): TileId {
   return { x, y };
 }
 
+/**
+ * 中心タイルとその周囲。半径 1 なら 3×3 の 9 枚。
+ *
+ * 関東全域を入れると保存済みタイルは 8,000 枚を超える。
+ * 全部まとめて読むとメモリに載らないので、読む範囲は常にここで絞る。
+ */
+export function tilesAround(center: TileId, radius: number): TileId[] {
+  const tiles: TileId[] = [];
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      tiles.push({ x: center.x + dx, y: center.y + dy });
+    }
+  }
+  return tiles;
+}
+
 /** Overpass の bbox 用。south, west, north, east の順。 */
 export function tileBounds(tile: TileId) {
   return {
