@@ -59,6 +59,74 @@ describe("initSchema", () => {
     await initSchema(db);
     expect(await savedTiles(db)).toEqual([]);
   });
+
+  it("同じスキーマなら保存済みのデータを残す", async () => {
+    const db = await fresh();
+    await saveTile(db, TILE_A, data([way(1, [10, 11])], [node(10), node(11)]));
+
+    await initSchema(db);
+
+    expect(await savedTiles(db)).toEqual([TILE_A]);
+    expect((await loadTiles(db, [TILE_A])).ways).toHaveLength(1);
+  });
+
+  it("古いスキーマの DB は作り直す", async () => {
+    // 回帰テスト。列を変えたのに古い表が残り、
+    // 「Calling the prepareAsync function has failed」になっていた。
+    // 道路網は Overpass から取り直せるので、作り直してよい
+    const db = memoryDatabase();
+    await db.execAsync(`
+      PRAGMA user_version = 1;
+      CREATE TABLE tiles (x INTEGER, y INTEGER, fetched_at INTEGER, PRIMARY KEY (x, y));
+      CREATE TABLE nodes (id INTEGER PRIMARY KEY, lat REAL, lon REAL);
+      CREATE TABLE ways (id INTEGER PRIMARY KEY, node_ids TEXT, tags TEXT);
+      CREATE TABLE way_tiles (way_id INTEGER, x INTEGER, y INTEGER, PRIMARY KEY (way_id, x, y));
+      CREATE TABLE node_tiles (node_id INTEGER, x INTEGER, y INTEGER, PRIMARY KEY (node_id, x, y));
+      INSERT INTO tiles VALUES (6985, 1781, 0);
+    `);
+
+    await initSchema(db);
+
+    // 古いデータは消え、新しい形で書き込める
+    expect(await savedTiles(db)).toEqual([]);
+    await saveTile(db, TILE_A, data([way(1, [10, 11])], [node(10), node(11)]));
+    expect((await loadTiles(db, [TILE_A])).ways).toHaveLength(1);
+  });
+
+  it("バージョンが記録されていない古い DB も作り直す", async () => {
+    // 回帰テスト。version を記録していなかった頃の DB は user_version が 0。
+    // 0 を「まだ何も無い」と扱って作り直しを飛ばしたため、古い表が残り
+    // 「no such column: w.highway」になっていた
+    const db = memoryDatabase();
+    await db.execAsync(`
+      CREATE TABLE tiles (x INTEGER, y INTEGER, fetched_at INTEGER, PRIMARY KEY (x, y));
+      CREATE TABLE nodes (id INTEGER PRIMARY KEY, lat REAL, lon REAL);
+      CREATE TABLE ways (id INTEGER PRIMARY KEY, node_ids TEXT, tags TEXT);
+      CREATE TABLE way_tiles (way_id INTEGER, x INTEGER, y INTEGER, PRIMARY KEY (way_id, x, y));
+      INSERT INTO tiles VALUES (6985, 1781, 0);
+    `);
+
+    await initSchema(db);
+
+    expect(await savedTiles(db)).toEqual([]);
+    await saveTile(db, TILE_A, data([way(1, [10, 11])], [node(10), node(11)]));
+    expect((await loadTiles(db, [TILE_A])).ways).toHaveLength(1);
+  });
+
+  it("使わなくなった表を残さない", async () => {
+    const db = memoryDatabase();
+    await db.execAsync(`
+      PRAGMA user_version = 1;
+      CREATE TABLE node_tiles (node_id INTEGER, x INTEGER, y INTEGER, PRIMARY KEY (node_id, x, y));
+    `);
+
+    await initSchema(db);
+
+    const rows = await db.getAllAsync<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'node_tiles'",
+    );
+    expect(rows).toEqual([]);
+  });
 });
 
 describe("saveTile / hasTile", () => {
@@ -115,6 +183,63 @@ describe("loadTiles", () => {
     ]);
     expect(loaded.nodes).toHaveLength(3);
     expect(loaded.nodes.find((n) => n.id === 10)).toEqual(node(10));
+  });
+
+  it("使うタグだけを保存する", async () => {
+    // 経路探索が読むのは highway と lanes だけ。
+    // タグ一式を JSON で持つと 1 タイルあたり 100KB 以上に膨らむ
+    const db = await fresh();
+    await saveTile(
+      db,
+      TILE_A,
+      data(
+        [way(1, [10, 11], { highway: "residential", name: "商店街", surface: "asphalt" })],
+        [node(10), node(11)],
+      ),
+    );
+
+    const loaded = await loadTiles(db, [TILE_A]);
+    expect(loaded.ways[0].tags).toEqual({ highway: "residential" });
+  });
+
+  it("lanes が無い way でも往復する", async () => {
+    const db = await fresh();
+    await saveTile(db, TILE_A, data([way(1, [10, 11])], [node(10), node(11)]));
+
+    const loaded = await loadTiles(db, [TILE_A]);
+    expect(loaded.ways[0].tags).toEqual({ highway: "residential" });
+    expect(loaded.ways[0].tags.lanes).toBeUndefined();
+  });
+
+  it("座標が丸められずにそのまま往復する", async () => {
+    // 圧縮のために座標を整数化すると丸めが入る。REAL のまま持つ
+    const db = await fresh();
+    const precise = { id: 10, lat: 35.6201234, lon: 139.7009876 };
+    await saveTile(db, TILE_A, data([way(1, [10, 11])], [precise, node(11)]));
+
+    const loaded = await loadTiles(db, [TILE_A]);
+    expect(loaded.nodes.find((n) => n.id === 10)).toEqual(precise);
+  });
+
+  it("ノードを多く持つ way でも往復する", async () => {
+    // 長さと順序が保たれること
+    const ids = Array.from({ length: 200 }, (_, i) => 1000 + i);
+    const db = await fresh();
+    await saveTile(db, TILE_A, data([way(1, ids)], ids.map(node)));
+
+    const loaded = await loadTiles(db, [TILE_A]);
+    expect(loaded.ways[0].nodes).toEqual(ids);
+  });
+
+  it("OSM の大きな ID でも往復する", async () => {
+    // OSM のノード ID は 100 億を超える。32bit に収まらない
+    const big = 12_345_678_901;
+    const db = await fresh();
+    await saveTile(db, TILE_A, data([way(1, [big, 11])], [{ id: big, lat: 35.62, lon: 139.7 }, node(11)]));
+
+    const loaded = await loadTiles(db, [TILE_A]);
+    expect(loaded.ways[0].nodes).toEqual([big, 11]);
+    expect(loaded.nodes.find((n) => n.id === big)).toBeDefined();
   });
 
   it("未取得のタイルを指定しても落ちない", async () => {
