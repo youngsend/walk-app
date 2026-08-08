@@ -9,6 +9,104 @@
 
 ---
 
+## 0. 全体構成
+
+### 何がどこにあるか
+
+```mermaid
+flowchart TB
+    subgraph outside["外部（通信するのはここだけ）"]
+        OV["Overpass API<br/>タイル単位の取得"]
+        GF["Geofabrik<br/>関東 7 県の一括配布"]
+        AM["Apple Maps<br/>地図の絵"]
+    end
+
+    subgraph mac["Mac（開発時のみ）"]
+        PRE["scripts/<br/>PBF → SQLite の前処理"]
+    end
+
+    subgraph app["iPhone（Expo Go）"]
+        subgraph ui["画面 app/"]
+            SCR["地図・ルート表示<br/>目的地のタップ"]
+        end
+        subgraph logic["ロジック lib/"]
+            TS["tiles<br/>座標 ⇄ タイル ID"]
+            OP["overpass<br/>取得とミラー切替"]
+            SY["tile-sync<br/>足りないタイルを揃える"]
+            GR["graph<br/>way → 交差点とエッジ"]
+            CO["cost<br/>種別係数・履歴係数"]
+            RT["route<br/>A* 探索"]
+            DB["db<br/>SQLite への読み書き"]
+        end
+        SQL[("walk.db<br/>道路網・歩いた区間")]
+    end
+
+    OV --> OP
+    GF --> PRE
+    PRE -->|自宅 Wi-Fi| SQL
+    AM --> SCR
+
+    OP --> SY --> DB --> SQL
+    SQL --> DB --> GR
+    CO --> GR
+    GR --> RT --> SCR
+    TS --> SY
+    SCR --> RT
+```
+
+### データの流れ
+
+```mermaid
+sequenceDiagram
+    participant U as ユーザー
+    participant S as 画面
+    participant D as db / SQLite
+    participant G as graph
+    participant R as route
+
+    U->>S: 地図をタップ（目的地）
+    S->>D: 経路が通りうるタイルを読む
+    D-->>S: way と node（OSM の生データ）
+    S->>G: グラフを組み立てる
+    Note over G: 2 本以上の way が共有するノード = 交差点<br/>読み込んだタイル全体から組む
+    G-->>S: 交差点とエッジ
+    S->>R: 現在地 → 目的地
+    Note over R: コスト = 距離 × 種別係数 × 履歴係数
+    R-->>S: 経路（座標列・距離・所要時間）
+    S->>U: 地図に線を描く
+```
+
+### 押さえておく点
+
+**保存するのはグラフではなく、OSM の生の way / node。**
+あるノードが交差点かどうかは「2 本以上の way が共有しているか」で決まるため、
+**隣のタイルを読んだ瞬間に判定が変わる**。タイルごとにエッジを作って保存すると、
+隣を足したときに辻褄が合わなくなる（[データ保存](#4-データ保存)）。
+
+**画面に出る地図（Apple Maps）と、経路探索に使う道路網（OSM）は別物。**
+取得した道路網は画面に描かれない（[画面の地図とは別のデータ](#22-画面の地図とは別のデータ)）。
+
+**通信するのは道路網を入れるときだけ。** 散歩中は経路探索が端末内で完結する。
+地図タイルの通信だけは Apple Maps 側で起きるが、これは[要件の対象外](./requirements.md#5-非機能要件)。
+
+### モジュールの依存
+
+上から下へ依存する。逆向きの依存は無い。
+
+| 層 | モジュール | 役割 |
+|---|---|---|
+| 画面 | `app/` | 表示と操作。ロジックは持たない |
+| 探索 | `lib/route` | A\* でコスト最小の経路を探す |
+| グラフ | `lib/graph` | way を交差点とエッジに変換、到達可能性 |
+| 重み | `lib/cost` | 種別係数・車線補正 |
+| 取得と保存 | `lib/overpass` `lib/tile-sync` `lib/db` `lib/store` | 外部との境界 |
+| 座標 | `lib/tiles` | タイル ID の計算。何にも依存しない |
+
+**外部に触るモジュールは口を型で切ってある**（`Database` / `ProbeSqlite` / `TileSource`）。
+おかげで `expo-sqlite` も通信も、実機なしでテストできる（[テストケース](./test-cases.md)）。
+
+---
+
 ## 1. ルート提案エンジン
 
 ### 1.1 前提調査: `lanes` タグは使えない
