@@ -33,6 +33,9 @@ export default function Index() {
   const [tapTarget, setTapTarget] = useState<"目的地" | "出発地">("目的地");
   const [plan, setPlan] = useState<PlanResult | null>(null);
   const [searching, setSearching] = useState(false);
+  const [open, setOpen] = useState(true);
+  /** 下のパネルの高さ。地図をそのぶん下げるのに使う */
+  const [panelHeight, setPanelHeight] = useState(0);
 
   const locate = useCallback(async () => {
     setStatus("確認中");
@@ -125,6 +128,8 @@ export default function Index() {
         region={region}
         showsUserLocation={status === "許可"}
         onPress={onMapPress}
+        // パネルのぶん地図を下げる。ピンや線がパネルの裏に隠れないようにする
+        mapPadding={{ top: 0, right: 0, bottom: panelHeight, left: 0 }}
       >
         {here && (
           <Marker coordinate={{ latitude: here.lat, longitude: here.lon }} title="現在地" />
@@ -155,104 +160,115 @@ export default function Index() {
         )}
       </MapView>
 
-      {searching && (
-        <View style={styles.overlay}>
-          <ActivityIndicator />
-          <Text style={styles.overlayText}>経路を探索中</Text>
-        </View>
-      )}
-
-      {plan && !plan.ok && !searching && (
-        <View style={styles.overlay}>
-          <Text style={styles.overlayText}>
-            {plan.reason === "道路網なし"
-              ? "この辺りの道路網が入っていない。「投入」から入れる。"
-              : "そこまでの経路が見つからない。川や線路で分断されているかもしれない。"}
+      {/* 地図を隠さないよう、操作と結果は下の 1 枚にまとめてある。
+          畳めば地図が全部見える */}
+      <View
+        style={styles.panel}
+        onLayout={(e) => setPanelHeight(e.nativeEvent.layout.height)}
+      >
+        <Pressable style={styles.handle} onPress={() => setOpen(!open)}>
+          <View style={styles.grip} />
+          <Text style={styles.handleText}>
+            {searching
+              ? "経路を探索中…"
+              : plan?.ok
+                ? `${(plan.distanceM / 1000).toFixed(2)} km・約 ${plan.minutes} 分`
+                : plan && !plan.ok
+                  ? plan.reason === "道路網なし"
+                    ? "道路網が入っていない"
+                    : "経路が見つからない"
+                  : status === "確認中"
+                    ? "現在地を取得中…"
+                    : `地図をタップして${tapTarget}を決める`}
           </Text>
-        </View>
-      )}
-
-      {plan?.ok && !searching && (
-        <View style={styles.result}>
-          <Text style={styles.resultMain}>
-            {(plan.distanceM / 1000).toFixed(2)} km・約 {plan.minutes} 分
-          </Text>
-          <Text style={styles.resultSub}>
-            {plan.breakdown
-              .slice(0, 3)
-              .map(([type, m]) => `${type} ${((m / plan.distanceM) * 100).toFixed(0)}%`)
-              .join(" / ")}
-          </Text>
-          <Text style={styles.resultSub}>
-            タイル {plan.tileCount} 枚・読込 {plan.timings.loadMs}ms・構築{" "}
-            {plan.timings.buildMs}ms・探索 {plan.timings.searchMs}ms
-          </Text>
-          <Pressable style={styles.retry} onPress={clear}>
-            <Text style={styles.retryText}>消す</Text>
-          </Pressable>
-        </View>
-      )}
-
-      {status === "確認中" && (
-        <View style={styles.overlay}>
-          <ActivityIndicator />
-          <Text style={styles.overlayText}>現在地を取得中</Text>
-        </View>
-      )}
-
-      {(status === "拒否" || status === "失敗") && (
-        <View style={styles.overlay}>
-          <Text style={styles.overlayText}>{message}</Text>
-          <Pressable style={styles.retry} onPress={locate}>
-            <Text style={styles.retryText}>もう一度試す</Text>
-          </Pressable>
-        </View>
-      )}
-
-      <View style={styles.picker}>
-        <Text style={styles.pickerLabel}>
-          タップ先: <Text style={styles.pickerValue}>{tapTarget}</Text>
-        </Text>
-        <Pressable
-          style={({ pressed }) => [styles.toggle, pressed && styles.linkPressed]}
-          onPress={() => setTapTarget(tapTarget === "目的地" ? "出発地" : "目的地")}
-        >
-          <Text style={styles.linkText}>
-            {tapTarget === "目的地" ? "出発地を指定" : "目的地を指定"}
-          </Text>
+          <Text style={styles.chevron}>{open ? "▼" : "▲"}</Text>
         </Pressable>
-        {origin && (
-          <Pressable
-            style={({ pressed }) => [styles.toggle, pressed && styles.linkPressed]}
-            onPress={() => {
-              setOrigin(null);
-              if (destination && here) propose(here, destination);
-            }}
-          >
-            <Text style={styles.linkText}>現在地から</Text>
-          </Pressable>
+
+        {open && (
+          <View style={styles.body}>
+            {searching && <ActivityIndicator color="#0a7ea4" />}
+
+            {plan?.ok && !searching && (
+              <>
+                <Text style={styles.sub}>
+                  {plan.breakdown
+                    .slice(0, 3)
+                    .map(
+                      ([type, m]) => `${type} ${((m / plan.distanceM) * 100).toFixed(0)}%`,
+                    )
+                    .join(" / ")}
+                </Text>
+                <Text style={styles.dim}>
+                  タイル {plan.tileCount} 枚・読込 {plan.timings.loadMs}ms・構築{" "}
+                  {plan.timings.buildMs}ms・探索 {plan.timings.searchMs}ms
+                </Text>
+              </>
+            )}
+
+            {plan && !plan.ok && !searching && (
+              <Text style={styles.sub}>
+                {plan.reason === "道路網なし"
+                  ? "この辺りの道路網が入っていない。「投入」から入れる。"
+                  : "川や線路で分断されているかもしれない。"}
+              </Text>
+            )}
+
+            {(status === "拒否" || status === "失敗") && message && (
+              <Text style={styles.sub}>{message}</Text>
+            )}
+
+            <View style={styles.row}>
+              <Pressable
+                style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
+                onPress={() => setTapTarget(tapTarget === "目的地" ? "出発地" : "目的地")}
+              >
+                <Text style={styles.chipText}>
+                  タップ先: <Text style={styles.strong}>{tapTarget}</Text>
+                </Text>
+              </Pressable>
+              {origin && (
+                <Pressable
+                  style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
+                  onPress={() => {
+                    setOrigin(null);
+                    if (destination && here) propose(here, destination);
+                  }}
+                >
+                  <Text style={styles.chipText}>現在地から</Text>
+                </Pressable>
+              )}
+              {(plan || destination) && (
+                <Pressable
+                  style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
+                  onPress={clear}
+                >
+                  <Text style={styles.chipText}>消す</Text>
+                </Pressable>
+              )}
+            </View>
+
+            <View style={styles.row}>
+              <Pressable
+                style={({ pressed }) => [styles.link, pressed && styles.pressed]}
+                onPress={locate}
+              >
+                <Text style={styles.linkText}>現在地へ</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.link, pressed && styles.pressed]}
+                onPress={() => router.push("/network")}
+              >
+                <Text style={styles.linkText}>道路網</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.link, pressed && styles.pressed]}
+                onPress={() => router.push("/transfer")}
+              >
+                <Text style={styles.linkText}>投入</Text>
+              </Pressable>
+            </View>
+          </View>
         )}
-      </View>
-
-      <View style={styles.footer}>
-        <Pressable
-          style={({ pressed }) => [styles.link, pressed && styles.linkPressed]}
-          onPress={locate}
-        >
-          <Text style={styles.linkText}>現在地へ</Text>
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [styles.link, pressed && styles.linkPressed]}
-          onPress={() => router.push("/network")}
-        >
-          <Text style={styles.linkText}>道路網</Text>
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [styles.link, pressed && styles.linkPressed]}
-          onPress={() => router.push("/transfer")}
-        >
-          <Text style={styles.linkText}>投入</Text>
-        </Pressable>
       </View>
     </View>
   );
@@ -261,83 +277,62 @@ export default function Index() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   map: { flex: 1 },
-  overlay: {
+  panel: {
     position: "absolute",
-    top: 60,
-    left: 16,
-    right: 16,
-    backgroundColor: "rgba(255,255,255,0.95)",
-    borderRadius: 10,
-    padding: 14,
-    gap: 10,
-    alignItems: "center",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(255,255,255,0.97)",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 28,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: -2 },
   },
-  overlayText: { fontSize: 14, color: "#333", textAlign: "center" },
-  result: {
-    position: "absolute",
-    top: 60,
-    left: 16,
-    right: 16,
-    backgroundColor: "rgba(255,255,255,0.96)",
-    borderRadius: 10,
-    padding: 14,
-    gap: 6,
-    alignItems: "center",
-  },
-  resultMain: { fontSize: 20, fontWeight: "700", color: "#222" },
-  resultSub: { fontSize: 12, color: "#666", textAlign: "center" },
-  picker: {
-    position: "absolute",
-    bottom: 104,
-    left: 16,
-    right: 16,
+  handle: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 10,
   },
-  pickerLabel: {
-    flex: 1,
-    fontSize: 13,
-    color: "#333",
-    backgroundColor: "rgba(255,255,255,0.92)",
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    overflow: "hidden",
+  grip: {
+    position: "absolute",
+    top: 6,
+    alignSelf: "center",
+    left: "50%",
+    marginLeft: -18,
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#d0d0d0",
   },
-  pickerValue: { fontWeight: "700", color: "#0a7ea4" },
-  toggle: {
-    backgroundColor: "#fff",
+  handleText: { flex: 1, fontSize: 17, fontWeight: "700", color: "#222", marginTop: 6 },
+  chevron: { fontSize: 12, color: "#888", marginTop: 6 },
+  body: { paddingHorizontal: 16, gap: 10 },
+  sub: { fontSize: 13, color: "#555" },
+  dim: { fontSize: 11, color: "#999" },
+  row: { flexDirection: "row", gap: 8 },
+  chip: {
+    backgroundColor: "#eef6f9",
     borderRadius: 8,
-    paddingVertical: 8,
+    paddingVertical: 9,
     paddingHorizontal: 12,
   },
-  retry: {
-    backgroundColor: "#0a7ea4",
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-  },
-  retryText: { color: "#fff", fontWeight: "600" },
-  footer: {
-    position: "absolute",
-    bottom: 40,
-    left: 16,
-    right: 16,
-    flexDirection: "row",
-    gap: 10,
-  },
+  chipText: { fontSize: 13, color: "#0a7ea4" },
+  strong: { fontWeight: "700" },
   link: {
     flex: 1,
     backgroundColor: "#fff",
-    borderRadius: 10,
-    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: "#0a7ea4",
+    borderRadius: 8,
+    paddingVertical: 11,
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
   },
-  linkPressed: { backgroundColor: "#e3f1f6" },
-  linkText: { color: "#0a7ea4", fontSize: 16, fontWeight: "600" },
+  linkText: { color: "#0a7ea4", fontSize: 15, fontWeight: "600" },
+  pressed: { opacity: 0.6 },
 });
