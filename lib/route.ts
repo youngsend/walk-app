@@ -1,4 +1,5 @@
 import { MIN_EDGE_FACTOR } from "./cost";
+import { edgeKey, historyFactor } from "./history";
 import { Edge, Graph, LatLon, distanceMeters } from "./graph";
 
 /**
@@ -48,7 +49,24 @@ class Queue {
   }
 }
 
-export function findRoute(graph: Graph, from: number, to: number): Route | null {
+/**
+ * 歩いた区間を避けるための材料。docs/requirements.md#f-9-ルートの多様性
+ *
+ * 渡さなければ履歴を無視する。**開発用に履歴を切って、
+ * 幹線回避だけの結果と比べられるようにしてある。**
+ */
+export type HistoryOptions = {
+  /** 区間キー → 最後に歩いた日時 */
+  walked: Map<string, number>;
+  now: number;
+};
+
+export function findRoute(
+  graph: Graph,
+  from: number,
+  to: number,
+  history?: HistoryOptions,
+): Route | null {
   if (!graph.nodes.has(from) || !graph.nodes.has(to)) return null;
   if (from === to) return { nodes: [from], edges: [], distance: 0, cost: 0 };
 
@@ -73,7 +91,8 @@ export function findRoute(graph: Graph, from: number, to: number): Route | null 
       const next = edge.from === current ? edge.to : edge.from;
       if (settled.has(next)) continue;
 
-      const cost = currentCost + edge.length * edge.factor;
+      // 履歴係数は 1.0 以上なので、推定値（MIN_EDGE_FACTOR）は実コストを超えない
+      const cost = currentCost + edge.length * edge.factor * weightOf(edge, history);
       if (cost >= (best.get(next) ?? Infinity)) continue;
 
       best.set(next, cost);
@@ -104,6 +123,12 @@ export function findRoute(graph: Graph, from: number, to: number): Route | null 
     distance: edges.reduce((sum, e) => sum + e.length, 0),
     cost: best.get(to)!,
   };
+}
+
+/** 区間の履歴係数。履歴を渡していなければ 1.0。 */
+function weightOf(edge: Edge, history: HistoryOptions | undefined): number {
+  if (!history) return 1.0;
+  return historyFactor(history.walked.get(edgeKey(edge)), history.now);
 }
 
 /**

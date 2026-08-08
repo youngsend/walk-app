@@ -5,9 +5,10 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import MapView, { MapPressEvent, Marker, Polyline } from "react-native-maps";
 
 import { LatLon } from "@/lib/graph";
+import { clearWalked, loadWalked, markWalked } from "@/lib/history";
 import { PlanResult, planRoute } from "@/lib/plan";
 import { Region, regionAround } from "@/lib/region";
-import { openStore } from "@/lib/store";
+import { openHistoryStore, openStore } from "@/lib/store";
 
 /**
  * 地図・現在地・ルート提案。docs/development-plan.md の Step 4 と Step 5
@@ -37,6 +38,13 @@ export default function Index() {
   const [open, setOpen] = useState(false);
   /** 下のパネルの高さ。地図をそのぶん下げるのに使う */
   const [panelHeight, setPanelHeight] = useState(0);
+  /**
+   * 履歴係数を効かせるか。**開発用の切り替え。**
+   * 切ればルートが変わった原因を幹線回避だけに絞れる
+   * （docs/development-plan.md の Step 6）
+   */
+  const [useHistory, setUseHistory] = useState(true);
+  const [walkedCount, setWalkedCount] = useState(0);
 
   const locate = useCallback(async () => {
     setStatus("確認中");
@@ -73,18 +81,41 @@ export default function Index() {
   /** 実際の出発地。指定が無ければ現在地 */
   const start = origin ?? here;
 
-  const propose = useCallback(async (from: LatLon, to: LatLon) => {
-    setPlan(null);
-    setSearching(true);
-    try {
-      const db = await openStore();
-      setPlan(await planRoute(db, from, to));
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSearching(false);
-    }
-  }, []);
+  const propose = useCallback(
+    async (from: LatLon, to: LatLon, withHistory = useHistory) => {
+      setPlan(null);
+      setSearching(true);
+      try {
+        const db = await openStore();
+        const history = withHistory
+          ? { walked: await loadWalked(await openHistoryStore()), now: Date.now() }
+          : undefined;
+        setWalkedCount(history?.walked.size ?? walkedCount);
+        setPlan(await planRoute(db, from, to, history));
+      } catch (e) {
+        setMessage(e instanceof Error ? e.message : String(e));
+      } finally {
+        setSearching(false);
+      }
+    },
+    [useHistory, walkedCount],
+  );
+
+  /** 提案されたルートを歩いたことにする。開発用。Step 8 で実データに置き換わる */
+  const markAsWalked = useCallback(async () => {
+    if (!plan?.ok || !start || !destination) return;
+    const history = await openHistoryStore();
+    await markWalked(history, plan.walkedEdges);
+    setWalkedCount((await loadWalked(history)).size);
+    propose(start, destination);
+  }, [destination, plan, propose, start]);
+
+  const forget = useCallback(async () => {
+    const history = await openHistoryStore();
+    await clearWalked(history);
+    setWalkedCount(0);
+    if (start && destination) propose(start, destination);
+  }, [destination, propose, start]);
 
   /**
    * 地図をタップした地点を、出発地か目的地に設定する。F-4
@@ -192,6 +223,7 @@ export default function Index() {
                   .slice(0, 3)
                   .map(([type, m]) => `${type} ${((m / plan.distanceM) * 100).toFixed(0)}%`)
                   .join(" / ")}
+                {"  ·  "}コスト {plan.cost.toFixed(0)}
                 {"  ·  "}
                 {plan.tileCount}枚 / 読{plan.timings.loadMs} 構{plan.timings.buildMs} 探
                 {plan.timings.searchMs}ms
@@ -236,6 +268,35 @@ export default function Index() {
                   onPress={clear}
                 >
                   <Text style={styles.chipText}>消す</Text>
+                </Pressable>
+              )}
+              {plan?.ok && (
+                <Pressable
+                  style={({ pressed }) => [styles.chip, styles.accent, pressed && styles.pressed]}
+                  onPress={markAsWalked}
+                >
+                  <Text style={styles.accentText}>歩いたことにする</Text>
+                </Pressable>
+              )}
+              <Pressable
+                style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
+                onPress={() => {
+                  const next = !useHistory;
+                  setUseHistory(next);
+                  if (start && destination) propose(start, destination, next);
+                }}
+              >
+                <Text style={styles.chipText}>
+                  履歴<Text style={styles.strong}>{useHistory ? "入" : "切"}</Text>
+                  {walkedCount > 0 ? ` ${walkedCount}` : ""}
+                </Text>
+              </Pressable>
+              {walkedCount > 0 && (
+                <Pressable
+                  style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
+                  onPress={forget}
+                >
+                  <Text style={styles.chipText}>履歴を消す</Text>
                 </Pressable>
               )}
               <Pressable
@@ -302,6 +363,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   chipText: { fontSize: 12, color: "#0a7ea4" },
+  accent: { backgroundColor: "#0a7ea4" },
+  accentText: { fontSize: 12, color: "#fff", fontWeight: "600" },
   strong: { fontWeight: "700" },
   pressed: { opacity: 0.6 },
 });

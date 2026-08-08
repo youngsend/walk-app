@@ -5,6 +5,8 @@ import { OsmNode, OsmWay } from "@/lib/osm";
 import { planRoute, walkingMinutes } from "@/lib/plan";
 import { tileAt } from "@/lib/tiles";
 
+const NOW = Date.UTC(2026, 7, 9);
+
 function memoryDatabase(): Database {
   const db = new DatabaseSync(":memory:");
   return {
@@ -98,6 +100,32 @@ describe("planRoute", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe("経路なし");
+  });
+
+  it("歩いた区間を渡すと、それを避けた経路になる", async () => {
+    // F-9。画面まで繋いだ状態でも多様性が効くこと
+    const db = await withStraightRoad();
+    const plain = await planRoute(db, FROM, TO);
+    expect(plain.ok).toBe(true);
+    if (!plain.ok) return;
+
+    const walked = new Map<string, number>();
+    for (const key of plain.walkedKeys) walked.set(key, NOW);
+    const again = await planRoute(db, FROM, TO, { walked, now: NOW });
+
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    // 他に道が無いので同じ経路になるが、コストは履歴のぶん上がる
+    expect(again.cost).toBeGreaterThan(plain.cost);
+  });
+
+  it("通る区間のキーを返す", async () => {
+    // 「歩いたことにする」で記録する先。OSM の ID で持つ
+    const result = await planRoute(await withStraightRoad(), FROM, TO);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.walkedKeys.length).toBeGreaterThan(0);
+    expect(result.walkedKeys[0]).toMatch(/^\d+\/\d+\/\d+$/);
   });
 
   it("幹線を避けた経路を返す", async () => {

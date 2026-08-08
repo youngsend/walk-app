@@ -1,6 +1,9 @@
 import { buildGraph } from "@/lib/graph";
 import { OsmNode, OsmWay, TileData } from "@/lib/osm";
+import { edgeKey } from "@/lib/history";
 import { findRoute, highwayBreakdown, routeCoordinates } from "@/lib/route";
+
+const NOW = Date.UTC(2026, 7, 9);
 
 /**
  * 目的地まで 2 通りの行き方があるグラフ。
@@ -196,5 +199,65 @@ describe("routeCoordinates", () => {
     });
     const route = findRoute(graph, 1, 1)!;
     expect(routeCoordinates(route, 1)).toEqual([]);
+  });
+});
+
+describe("履歴係数による多様性", () => {
+  // 係数を平らにして、種別では差が付かないグラフにする。
+  // これで「ルートが変わった原因は履歴だけ」と言い切れる
+  const flatGraph = () => buildGraph(flatten(twoRoutes()));
+
+  it("歩いた区間を避けて別の道を選ぶ", () => {
+    // **F-9 そのもの。** 直線(400m)と迂回(577m)があり、係数が平らなら
+    // 普段は短い直線を選ぶ。直線を歩いたことにすると迂回へ移る
+    const graph = flatGraph();
+    const before = findRoute(graph, 1, 4)!;
+    expect(before.distance).toBeCloseTo(400, 0);
+
+    const walked = new Map<string, number>();
+    for (const e of before.edges) walked.set(edgeKey(e), NOW);
+
+    const after = findRoute(graph, 1, 4, { walked, now: NOW })!;
+    expect(after.distance).toBeGreaterThan(before.distance);
+  });
+
+  it("履歴を渡さなければ経路は変わらない", () => {
+    // 開発用に履歴を切って、幹線回避だけの結果と比べられること
+    const graph = flatGraph();
+    const plain = findRoute(graph, 1, 4)!;
+    const empty = findRoute(graph, 1, 4, { walked: new Map(), now: NOW })!;
+    expect(empty.distance).toBeCloseTo(plain.distance, 5);
+  });
+
+  it("十分に時間が経った区間は避けなくなる", () => {
+    // 2 週間経てば元のルートに戻る
+    const graph = flatGraph();
+    const before = findRoute(graph, 1, 4)!;
+    const walked = new Map<string, number>();
+    for (const e of before.edges) walked.set(edgeKey(e), NOW - 30 * 24 * 60 * 60 * 1000);
+
+    const after = findRoute(graph, 1, 4, { walked, now: NOW })!;
+    expect(after.distance).toBeCloseTo(before.distance, 5);
+  });
+
+  it("履歴込みのコストは種別だけのコストより高くなる", () => {
+    // どちらがどれだけ効いたかを数字で見るため
+    const graph = flatGraph();
+    const before = findRoute(graph, 1, 4)!;
+    const walked = new Map<string, number>();
+    for (const e of before.edges) walked.set(edgeKey(e), NOW);
+
+    const after = findRoute(graph, 1, 4, { walked, now: NOW })!;
+    expect(after.cost).toBeGreaterThan(before.cost);
+  });
+
+  it("全部歩いていても経路は返す", () => {
+    // 変えられる区間が無ければ同じルートでよい（F-9）。
+    // 到達不能にしてはいけない
+    const graph = flatGraph();
+    const walked = new Map<string, number>();
+    for (const e of graph.edges) walked.set(edgeKey(e), NOW);
+
+    expect(findRoute(graph, 1, 4, { walked, now: NOW })).not.toBeNull();
   });
 });

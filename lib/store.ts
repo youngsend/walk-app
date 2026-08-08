@@ -1,6 +1,7 @@
 import * as SQLite from "expo-sqlite";
 
 import { Database, initSchema } from "./db";
+import { initHistorySchema } from "./history";
 
 /**
  * 実機で使う DB を開く。SQL そのものは lib/db.ts にあり、
@@ -39,4 +40,28 @@ export async function closeStore(): Promise<void> {
   } catch {
     // 閉じられなくても、掴んでいない以上は次で開き直せる
   }
+}
+
+/**
+ * 歩いた区間を入れる DB。**道路網とは別ファイルにする。**
+ *
+ * 道路網の投入は walk.db を丸ごと上書きするので、同じファイルに
+ * 記録を置くと年 1 回の地図更新で全部消える
+ * （docs/requirements.md#f-10-オフラインデータの一括投入）。
+ */
+const HISTORY_DATABASE_NAME = "history.db";
+
+let historyOpened: Promise<Database> | null = null;
+
+export function openHistoryStore(): Promise<Database> {
+  if (!historyOpened) {
+    historyOpened = (async () => {
+      const db = (await SQLite.openDatabaseAsync(
+        HISTORY_DATABASE_NAME,
+      )) as unknown as Database;
+      await initHistorySchema(db);
+      return db;
+    })();
+  }
+  return historyOpened;
 }

@@ -1,6 +1,7 @@
 import { Database, loadTiles } from "./db";
 import { LatLon, buildGraph, nearestNode } from "./graph";
-import { findRoute, highwayBreakdown, routeCoordinates } from "./route";
+import { WalkedEdge, edgeKey } from "./history";
+import { HistoryOptions, findRoute, highwayBreakdown, routeCoordinates } from "./route";
 import { tilesForRoute } from "./tiles";
 
 /**
@@ -21,6 +22,11 @@ export type PlanResult =
       coordinates: LatLon[];
       distanceM: number;
       minutes: number;
+      /** 距離 × 種別係数 × 履歴係数 の総和。効き具合を数字で見る */
+      cost: number;
+      /** 通る区間。「歩いたことにする」で記録する先 */
+      walkedKeys: string[];
+      walkedEdges: WalkedEdge[];
       /** 種別ごとの距離。幹線を避けられているかを数字で見る */
       breakdown: [string, number][];
       /** 読んだタイル数。応答時間の目安になる */
@@ -40,6 +46,7 @@ export async function planRoute(
   db: Database,
   from: LatLon,
   to: LatLon,
+  history?: HistoryOptions,
 ): Promise<PlanResult> {
   const tiles = tilesForRoute(from, to);
 
@@ -57,7 +64,7 @@ export async function planRoute(
   if (start === undefined || goal === undefined) return { ok: false, reason: "道路網なし" };
 
   at = Date.now();
-  const route = findRoute(graph, start, goal);
+  const route = findRoute(graph, start, goal, history);
   const searchMs = Date.now() - at;
 
   // 川や線路で分断された先
@@ -68,6 +75,9 @@ export async function planRoute(
     coordinates: routeCoordinates(route, start),
     distanceM: route.distance,
     minutes: walkingMinutes(route.distance),
+    cost: route.cost,
+    walkedKeys: route.edges.map(edgeKey),
+    walkedEdges: route.edges.map((e) => ({ wayId: e.wayId, from: e.from, to: e.to })),
     breakdown: highwayBreakdown(route),
     tileCount: tiles.length,
     timings: { loadMs, buildMs, searchMs },
