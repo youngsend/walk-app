@@ -1,6 +1,6 @@
 import { buildGraph } from "@/lib/graph";
 import { OsmNode, OsmWay, TileData } from "@/lib/osm";
-import { findRoute, highwayBreakdown } from "@/lib/route";
+import { findRoute, highwayBreakdown, routeCoordinates } from "@/lib/route";
 
 /**
  * 目的地まで 2 通りの行き方があるグラフ。
@@ -129,5 +129,72 @@ describe("highwayBreakdown", () => {
     for (let i = 1; i < breakdown.length; i++) {
       expect(breakdown[i - 1][1]).toBeGreaterThanOrEqual(breakdown[i][1]);
     }
+  });
+});
+
+describe("routeCoordinates", () => {
+  // 東西に 3 本並べる。way 1 は 1→2、way 2 は 3→2（向きが逆）
+  const nodes: OsmNode[] = [
+    { id: 1, lat: 35.62, lon: 139.7 },
+    { id: 2, lat: 35.62, lon: 139.701 },
+    { id: 3, lat: 35.62, lon: 139.702 },
+  ];
+
+  function routeAcross() {
+    const graph = buildGraph({
+      ways: [
+        { id: 1, nodes: [1, 2], tags: { highway: "residential" } },
+        { id: 2, nodes: [3, 2], tags: { highway: "residential" } },
+      ],
+      nodes,
+    });
+    return { graph, route: findRoute(graph, 1, 3)! };
+  }
+
+  it("出発点から目的地へ順に並ぶ", () => {
+    const { route } = routeAcross();
+    const coords = routeCoordinates(route, 1);
+    expect(coords[0]).toEqual({ lat: 35.62, lon: 139.7 });
+    expect(coords[coords.length - 1]).toEqual({ lat: 35.62, lon: 139.702 });
+  });
+
+  it("向きが逆のエッジでも反転して繋ぐ", () => {
+    // way 2 は 3→2 の向きで作られている。経路は 2→3 に進むので反転が要る。
+    // 反転を忘れると線が行ったり来たりする
+    const { route } = routeAcross();
+    const coords = routeCoordinates(route, 1);
+    for (let i = 1; i < coords.length; i++) {
+      expect(coords[i].lon).toBeGreaterThan(coords[i - 1].lon);
+    }
+  });
+
+  it("継ぎ目の点が重複しない", () => {
+    const { route } = routeAcross();
+    const coords = routeCoordinates(route, 1);
+    expect(coords).toHaveLength(3);
+  });
+
+  it("途中の形状点を残す", () => {
+    // 道の形が保たれること。交差点だけを結ぶと地図上で道から外れる
+    const graph = buildGraph({
+      ways: [{ id: 1, nodes: [1, 2, 3], tags: { highway: "residential" } }],
+      nodes: [
+        { id: 1, lat: 35.62, lon: 139.7 },
+        { id: 2, lat: 35.621, lon: 139.701 },
+        { id: 3, lat: 35.62, lon: 139.702 },
+      ],
+    });
+    const route = findRoute(graph, 1, 3)!;
+    expect(routeCoordinates(route, 1)).toHaveLength(3);
+  });
+
+  it("エッジの無い経路では空を返す", () => {
+    // 出発点と目的地が同じノードに寄った場合。線は引かない
+    const graph = buildGraph({
+      ways: [{ id: 1, nodes: [1, 2], tags: { highway: "residential" } }],
+      nodes,
+    });
+    const route = findRoute(graph, 1, 1)!;
+    expect(routeCoordinates(route, 1)).toEqual([]);
   });
 });

@@ -1,5 +1,5 @@
 import { MIN_EDGE_FACTOR } from "./cost";
-import { Edge, Graph, distanceMeters } from "./graph";
+import { Edge, Graph, LatLon, distanceMeters } from "./graph";
 
 /**
  * コスト最小の経路を探す。docs/design.md#14-探索アルゴリズム
@@ -104,6 +104,29 @@ export function findRoute(graph: Graph, from: number, to: number): Route | null 
     distance: edges.reduce((sum, e) => sum + e.length, 0),
     cost: best.get(to)!,
   };
+}
+
+/**
+ * 地図に線を描くための座標列。
+ *
+ * エッジの geometry は way が描かれた向き（from → to）で入っているが、
+ * 経路がその向きに進むとは限らない。**逆向きに通るエッジは反転しないと
+ * 線が行ったり来たりする。** 継ぎ目の点は重複するので落とす。
+ */
+export function routeCoordinates(route: Route, start: number): LatLon[] {
+  // 出発点と目的地が同じノードに寄った場合。線は引かない
+  if (route.edges.length === 0) return [];
+
+  const coordinates: LatLon[] = [];
+  let cursor = start;
+  for (const edge of route.edges) {
+    const forward = edge.from === cursor;
+    const geometry = forward ? edge.geometry : [...edge.geometry].reverse();
+    // 継ぎ目は前のエッジの終点と同じ。2 本目からは先頭を落とす
+    coordinates.push(...(coordinates.length === 0 ? geometry : geometry.slice(1)));
+    cursor = forward ? edge.to : edge.from;
+  }
+  return coordinates;
 }
 
 /** 経路上の種別ごとの距離。距離の大きい順。 */
