@@ -11,11 +11,16 @@ import { TileId, tileBounds } from "./tiles";
  */
 
 /**
- * 順に試し、失敗したら次へ落ちる。
- * 公開サーバーは過負荷で 504 を返すことがあり、実測でも
- * overpass-api.de が 17 秒、kumi.systems が 3 秒と差が出た。
+ * 順に試し、失敗したら次へ落ちる。公開サーバーは過負荷で 504 を返す。
+ * 並びは実測（2026-08-08）の応答時間順で、状況が変われば入れ替えてよい。
+ *
+ * **地域限定のインスタンスは入れないこと。** 範囲外のクエリに対して
+ * エラーではなく「200 と 0 件」を返すため、道が 1 本も無いタイルとして
+ * 保存されてしまう（実測: overpass.osm.ch は日本のクエリに 0 件を返した）。
  */
 export const OVERPASS_ENDPOINTS = [
+  "https://overpass.private.coffee/api/interpreter",
+  "https://overpass.openstreetmap.fr/api/interpreter",
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
 ];
@@ -107,13 +112,24 @@ export async function fetchTile(
   const query = buildQuery(tile);
 
   const failures: string[] = [];
+  let empty: TileData | null = null;
+
   for (const endpoint of endpoints) {
     try {
-      return await fetchFrom(endpoint, query, fetchImpl);
+      const data = await fetchFrom(endpoint, query, fetchImpl);
+      // 空はエラーではないが疑わしいので、次も試す。
+      // 全て空なら本当に道が無いタイルとみなして受け入れる
+      if (data.ways.length === 0 && data.nodes.length === 0) {
+        empty = data;
+        continue;
+      }
+      return data;
     } catch (e) {
       failures.push(`${endpoint}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+
+  if (empty) return empty;
   throw new Error(`Overpass の取得に失敗しました\n${failures.join("\n")}`);
 }
 

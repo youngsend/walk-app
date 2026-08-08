@@ -42,14 +42,32 @@ const SCHEMA_VERSION = 2;
 
 const TABLES = ["tiles", "nodes", "ways", "way_tiles", "node_tiles"];
 
-export async function initSchema(db: Database): Promise<void> {
-  const row = await db.getFirstAsync<{ user_version: number }>("PRAGMA user_version");
-  const found = row?.user_version ?? 0;
+/**
+ * 今の DB が使える形かどうか。
+ *
+ * 版数（`PRAGMA user_version`）だけを見ると、それが読めない環境で
+ * 判定を誤る。実機で「table ways has no column named highway」が出たため、
+ * **実際の表の形を確かめる**ようにした。
+ */
+async function isUsable(db: Database): Promise<boolean> {
+  try {
+    const columns = await db.getAllAsync<{ name: string }>("PRAGMA table_info(ways)");
+    if (columns.length === 0) return true; // まだ何も無い
 
-  // 食い違えば作り直す。0 を「まだ何も無い」とみなしてはいけない。
-  // version を記録していなかった頃の DB も 0 で、そこに古い表が残っている。
+    const names = new Set(columns.map((c) => c.name));
+    return REQUIRED_WAY_COLUMNS.every((c) => names.has(c));
+  } catch {
+    // 形を確かめられないなら、作り直したほうが安全
+    return false;
+  }
+}
+
+const REQUIRED_WAY_COLUMNS = ["id", "node_ids", "highway", "lanes"];
+
+export async function initSchema(db: Database): Promise<void> {
+  // 使えない形なら作り直す。道路網は取り直せるので移行はしない。
   // 何も無い DB なら DROP は空振りするだけで害はない
-  if (found !== SCHEMA_VERSION) {
+  if (!(await isUsable(db))) {
     await db.execAsync(TABLES.map((t) => `DROP TABLE IF EXISTS ${t};`).join("\n"));
   }
 

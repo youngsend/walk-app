@@ -111,6 +111,38 @@ describe("fetchTile", () => {
     expect(data.nodes).toHaveLength(3);
   });
 
+  it("空の応答なら次のエンドポイントを試す", async () => {
+    // 地域限定のインスタンスは、範囲外でもエラーではなく空を返す。
+    // 実測で overpass.osm.ch は日本のクエリに 200 と 0 件を返した。
+    // そのまま採ると「道が 1 本も無いタイル」として保存されてしまう
+    const fetchImpl = jest
+      .fn()
+      .mockResolvedValueOnce(response({ elements: [] }))
+      .mockResolvedValueOnce(response(SAMPLE));
+
+    const data = await fetchTile(TILE, {
+      fetchImpl,
+      endpoints: ["https://empty", "https://good"],
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(data.ways).toHaveLength(2);
+  });
+
+  it("どこも空を返すなら、空のまま受け入れる", async () => {
+    // 海上や山奥には本当に道が無いタイルがある
+    const fetchImpl = jest.fn(async () => response({ elements: [] }));
+
+    const data = await fetchTile(TILE, {
+      fetchImpl,
+      endpoints: ["https://a", "https://b"],
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(data.ways).toEqual([]);
+    expect(data.nodes).toEqual([]);
+  });
+
   it("全滅したら、試した結果が分かるエラーを投げる", async () => {
     const fetchImpl = jest.fn(async () => response(null, 504));
 

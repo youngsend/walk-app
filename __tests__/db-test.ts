@@ -113,6 +113,25 @@ describe("initSchema", () => {
     expect((await loadTiles(db, [TILE_A])).ways).toHaveLength(1);
   });
 
+  it("版数が合っていても、列が足りない表は作り直す", async () => {
+    // 回帰テスト。実機で「table ways has no column named highway」が出た。
+    // PRAGMA user_version が期待通り読めない環境があり得るため、
+    // 版数を信用せず実際の表の形を確かめる
+    const db = memoryDatabase();
+    await db.execAsync(`
+      PRAGMA user_version = 2;
+      CREATE TABLE tiles (x INTEGER, y INTEGER, fetched_at INTEGER, PRIMARY KEY (x, y));
+      CREATE TABLE nodes (id INTEGER PRIMARY KEY, lat REAL, lon REAL);
+      CREATE TABLE ways (id INTEGER PRIMARY KEY, node_ids TEXT, tags TEXT);
+      CREATE TABLE way_tiles (way_id INTEGER, x INTEGER, y INTEGER, PRIMARY KEY (way_id, x, y));
+    `);
+
+    await initSchema(db);
+
+    await saveTile(db, TILE_A, data([way(1, [10, 11])], [node(10), node(11)]));
+    expect((await loadTiles(db, [TILE_A])).ways).toHaveLength(1);
+  });
+
   it("使わなくなった表を残さない", async () => {
     const db = memoryDatabase();
     await db.execAsync(`
