@@ -86,3 +86,39 @@ describe("edgeFactor", () => {
     expect(edgeFactor({})).toBe(1.0);
   });
 });
+
+describe("edgeFactor — footway の種別", () => {
+  // 関東全域の実測で highway=footway の 6 割が歩道と横断歩道だった
+  // （docs/design.md#111-footway-の-6-割は道路の付属物未解決）。
+  // 車道に付随する線を 0.8 で優遇すると、大通り沿いの歩道が
+  // 最も安い道になり「幹線を避ける」が骨抜きになる
+  it("歩道は優遇しない", () => {
+    expect(edgeFactor({ highway: "footway", footway: "sidewalk" })).toBe(1.5);
+  });
+
+  it("横断歩道は基準と同じにする", () => {
+    // 横断は避けようがない。優遇だけ外す
+    expect(edgeFactor({ highway: "footway", footway: "crossing" })).toBe(1.0);
+  });
+
+  it("種別の無い footway は歩行者専用道として優遇する", () => {
+    expect(edgeFactor({ highway: "footway" })).toBe(0.8);
+  });
+
+  it("知らない footway 種別なら優遇したままにする", () => {
+    // access_aisle や traffic_island など。歩道と決めつけない
+    expect(edgeFactor({ highway: "footway", footway: "traffic_island" })).toBe(0.8);
+  });
+
+  it("footway 以外の種別では footway タグを見ない", () => {
+    // 実データには highway=path に footway=sidewalk が付いた例がある
+    expect(edgeFactor({ highway: "path", footway: "sidewalk" })).toBe(0.8);
+    expect(edgeFactor({ highway: "primary", footway: "sidewalk" })).toBe(8.0);
+  });
+
+  it("歩道でも車線補正は掛かる", () => {
+    expect(edgeFactor({ highway: "footway", footway: "sidewalk", lanes: "2" })).toBe(
+      1.5 * 1.5,
+    );
+  });
+});

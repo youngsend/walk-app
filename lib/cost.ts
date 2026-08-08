@@ -39,6 +39,24 @@ export function highwayFactor(highway: string): number {
 }
 
 /**
+ * `footway=` の種別ごとの係数。**`highway=footway` のときだけ見る。**
+ *
+ * 関東全域の実測では `highway=footway` 407,776 本のうち
+ * 歩道 30.3% / 横断歩道 29.8% で、6 割が車道に付随して別に描かれた線だった
+ * （docs/design.md#111-footway-の-6-割は道路の付属物未解決）。
+ * これを 0.8 で優遇すると**大通り沿いの歩道が最も安い道になり**、
+ * 経路の統計に primary が出てこないまま幹線沿いを歩くことになる。
+ *
+ * 歩道を 1.5 にしたのは、日本では歩道が別に描かれる道路がおおむね
+ * tertiary 以上だからで、「幹線沿いの proxy」として基準より不利にしてある。
+ * 値は初期値。実際に歩いて調整する（docs/requirements.md#7-未決事項）。
+ */
+const FOOTWAY_FACTOR: Record<string, number> = {
+  sidewalk: 1.5,
+  crossing: 1.0,
+};
+
+/**
  * lanes による補正。タグがある場合のみ適用する。
  * 日本の生活道路にはほぼ付いていないため、あくまで補助
  * （docs/design.md#11-前提調査-lanes-タグは使えない）。
@@ -55,5 +73,13 @@ export function lanesFactor(lanes: string | undefined): number {
 
 /** 区間の重み。距離に掛けるとコストになる。 */
 export function edgeFactor(tags: Record<string, string>): number {
-  return highwayFactor(tags.highway ?? "") * lanesFactor(tags.lanes);
+  const highway = tags.highway ?? "";
+
+  // footway だけは種別まで見る。知らない種別なら歩行者専用道のまま優遇する
+  let base = highwayFactor(highway);
+  if (highway === "footway" && tags.footway !== undefined) {
+    base = FOOTWAY_FACTOR[tags.footway] ?? base;
+  }
+
+  return base * lanesFactor(tags.lanes);
 }

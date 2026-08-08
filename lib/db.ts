@@ -17,7 +17,7 @@ import { TileId } from "./tiles";
  * **精度は一切落としていない**。
  * - node とタイルの対応表をやめた。way の node 参照から辿れるため不要で、
  *   node 1 件ごとの行が全体の 3 割を占めていた
- * - way のタグは経路探索が読む highway / lanes だけを列に持つ。
+ * - way のタグは経路探索が読む highway / lanes / footway だけを列に持つ。
  *   name や surface は保存しない（読む側がいない）
  *
  * 座標は REAL のまま。整数化すれば 1 割ほど縮むが、丸めが入るのでやめた。
@@ -37,8 +37,11 @@ export type Database = {
  *
  * 1: 最初の形（tags を JSON、node ごとのタイル対応表あり）
  * 2: 使うタグだけを列に。node_tiles を廃止
+ * 3: footway の種別を持たせた。歩道・横断歩道を歩行者専用道と
+ *    区別しないと、大通り沿いの歩道が最も安い道になってしまう
+ *    （docs/design.md#111-footway-の-6-割は道路の付属物未解決）
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const TABLES = ["tiles", "nodes", "ways", "way_tiles", "node_tiles"];
 
@@ -62,7 +65,7 @@ async function isUsable(db: Database): Promise<boolean> {
   }
 }
 
-const REQUIRED_WAY_COLUMNS = ["id", "node_ids", "highway", "lanes"];
+const REQUIRED_WAY_COLUMNS = ["id", "node_ids", "highway", "lanes", "footway"];
 
 export async function initSchema(db: Database): Promise<void> {
   // 使えない形なら作り直す。道路網は取り直せるので移行はしない。
@@ -91,7 +94,9 @@ export async function initSchema(db: Database): Promise<void> {
       id INTEGER PRIMARY KEY,
       node_ids TEXT NOT NULL,
       highway TEXT NOT NULL,
-      lanes REAL
+      lanes REAL,
+      -- highway=footway のときの footway= の値（sidewalk / crossing など）
+      footway TEXT
     );
 
     -- way はタイルをまたぐので多対多にする。
@@ -139,11 +144,12 @@ export async function saveTile(
   for (const w of data.ways) {
     const lanes = parseFloat(w.tags.lanes);
     await db.runAsync(
-      "INSERT OR REPLACE INTO ways (id, node_ids, highway, lanes) VALUES (?, ?, ?, ?)",
+      "INSERT OR REPLACE INTO ways (id, node_ids, highway, lanes, footway) VALUES (?, ?, ?, ?, ?)",
       w.id,
       JSON.stringify(w.nodes),
       w.tags.highway ?? "",
       Number.isFinite(lanes) ? lanes : null,
+      w.tags.footway ?? null,
     );
     await db.runAsync(
       "INSERT OR REPLACE INTO way_tiles (way_id, x, y) VALUES (?, ?, ?)",
@@ -182,8 +188,9 @@ export async function loadTiles(db: Database, tiles: TileId[]): Promise<TileData
     node_ids: string;
     highway: string;
     lanes: number | null;
+    footway: string | null;
   }>(
-    `SELECT DISTINCT w.id, w.node_ids, w.highway, w.lanes
+    `SELECT DISTINCT w.id, w.node_ids, w.highway, w.lanes, w.footway
        FROM ways w
        JOIN way_tiles wt ON wt.way_id = w.id
       WHERE (wt.x, wt.y) IN (VALUES ${placeholders})`,
@@ -193,6 +200,7 @@ export async function loadTiles(db: Database, tiles: TileId[]): Promise<TileData
   const ways: OsmWay[] = wayRows.map((r) => {
     const tags: Record<string, string> = { highway: r.highway };
     if (r.lanes !== null) tags.lanes = String(r.lanes);
+    if (r.footway !== null) tags.footway = r.footway;
     return { id: r.id, nodes: JSON.parse(r.node_ids), tags };
   });
 

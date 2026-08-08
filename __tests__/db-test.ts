@@ -340,3 +340,35 @@ describe("loadTiles", () => {
     expect(loaded.nodes.map((n) => n.id).sort()).toEqual([10, 11]);
   });
 });
+
+describe("footway の種別の保存", () => {
+  it("footway の種別が往復する", async () => {
+    // 歩道と横断歩道を区別できないと、コストモデルが大通り沿いの
+    // 歩道を優遇してしまう（docs/design.md#111-footway-の-6-割は道路の付属物未解決）
+    const db = await fresh();
+    await saveTile(
+      db,
+      TILE_A,
+      data(
+        [
+          way(1, [1, 2], { highway: "footway", footway: "sidewalk" }),
+          way(2, [2, 3], { highway: "footway", footway: "crossing" }),
+        ],
+        [node(1), node(2), node(3)],
+      ),
+    );
+
+    const loaded = await loadTiles(db, [TILE_A]);
+    const byId = new Map(loaded.ways.map((w) => [w.id, w.tags]));
+    expect(byId.get(1)?.footway).toBe("sidewalk");
+    expect(byId.get(2)?.footway).toBe("crossing");
+  });
+
+  it("footway タグが無い way でも往復する", async () => {
+    const db = await fresh();
+    await saveTile(db, TILE_A, data([way(1, [1, 2])], [node(1), node(2)]));
+
+    const loaded = await loadTiles(db, [TILE_A]);
+    expect(loaded.ways[0].tags.footway).toBeUndefined();
+  });
+});

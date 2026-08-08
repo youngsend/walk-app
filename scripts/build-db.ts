@@ -53,7 +53,7 @@ db.exec(`
 
   CREATE TABLE tiles (x INTEGER NOT NULL, y INTEGER NOT NULL, fetched_at INTEGER NOT NULL, PRIMARY KEY (x, y));
   CREATE TABLE nodes (id INTEGER PRIMARY KEY, lat REAL NOT NULL, lon REAL NOT NULL);
-  CREATE TABLE ways (id INTEGER PRIMARY KEY, node_ids TEXT NOT NULL, highway TEXT NOT NULL, lanes REAL);
+  CREATE TABLE ways (id INTEGER PRIMARY KEY, node_ids TEXT NOT NULL, highway TEXT NOT NULL, lanes REAL, footway TEXT);
   CREATE TABLE way_tiles (way_id INTEGER NOT NULL, x INTEGER NOT NULL, y INTEGER NOT NULL, PRIMARY KEY (way_id, x, y));
 
   -- 作業用。最後に落とす
@@ -76,7 +76,7 @@ function readPbf(onItem: (item: OsmItem) => void): Promise<void> {
 async function pass1CollectWays() {
   log("1 パス目: way を読む");
   const insertWay = db.prepare(
-    "INSERT OR REPLACE INTO ways (id, node_ids, highway, lanes) VALUES (?, ?, ?, ?)",
+    "INSERT OR REPLACE INTO ways (id, node_ids, highway, lanes, footway) VALUES (?, ?, ?, ?, ?)",
   );
   const insertNeeded = db.prepare("INSERT OR IGNORE INTO needed_nodes (id) VALUES (?)");
 
@@ -97,6 +97,8 @@ async function pass1CollectWays() {
       JSON.stringify(refs),
       tags.highway,
       Number.isFinite(lanes) ? lanes : null,
+      // 歩道・横断歩道を歩行者専用道と区別するため（design.md#111）
+      tags.footway ?? null,
     );
     for (const ref of refs) insertNeeded.run(ref);
     kept++;
@@ -191,7 +193,7 @@ function finish() {
   // ここで作っておく。端末に作らせると初回起動が数分になり、
   // 「端末上での事前処理は 5 分以内」(requirements.md#f-10) を脅かす
   db.exec("CREATE INDEX IF NOT EXISTS way_tiles_xy ON way_tiles (x, y)");
-  db.exec(`PRAGMA user_version = 2`);
+  db.exec(`PRAGMA user_version = 3`);
   db.exec("VACUUM");
 
   const count = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
