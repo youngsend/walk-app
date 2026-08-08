@@ -20,12 +20,17 @@ const DEV_LON = 139.7;
 
 type Source = "取得" | "保存済み" | null;
 
+/** 実行中の操作。押されたボタンにだけスピナーを出すために持つ。 */
+type Running = "起動" | "取得" | "読み込み" | null;
+
 export default function Index() {
   const [data, setData] = useState<TileData | null>(null);
   const [source, setSource] = useState<Source>(null);
   const [stored, setStored] = useState<TileId[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [running, setRunning] = useState<Running>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const busy = running !== null;
 
   const tile = useMemo(() => tileAt(DEV_LAT, DEV_LON), []);
   const bounds = tileBounds(tile);
@@ -51,15 +56,15 @@ export default function Index() {
   }, [graph]);
 
   const run = useCallback(
-    async (fn: () => Promise<void>) => {
-      setBusy(true);
+    async (label: Exclude<Running, null>, fn: () => Promise<void>) => {
+      setRunning(label);
       setError(null);
       try {
         await fn();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
-        setBusy(false);
+        setRunning(null);
       }
     },
     [],
@@ -67,7 +72,7 @@ export default function Index() {
 
   /** 起動時に、保存済みなら通信せずに復元する。1-3 の完了の定義。 */
   useEffect(() => {
-    run(async () => {
+    run("起動", async () => {
       const db = await openStore();
       setStored(await savedTiles(db));
       if (await hasTile(db, tile)) {
@@ -78,7 +83,7 @@ export default function Index() {
   }, [run, tile]);
 
   const download = () =>
-    run(async () => {
+    run("取得", async () => {
       const db = await openStore();
       const fetched = await fetchTile(tile);
       await saveTile(db, tile, fetched);
@@ -88,7 +93,7 @@ export default function Index() {
     });
 
   const reloadFromStore = () =>
-    run(async () => {
+    run("読み込み", async () => {
       const db = await openStore();
       setData(await loadTiles(db, [tile]));
       setSource("保存済み");
@@ -111,7 +116,7 @@ export default function Index() {
         onPress={download}
         disabled={busy}
       >
-        {busy ? (
+        {running === "取得" ? (
           <ActivityIndicator color="#fff" />
         ) : (
           <Text style={styles.buttonText}>Overpass から取得して保存</Text>
@@ -123,9 +128,13 @@ export default function Index() {
         onPress={reloadFromStore}
         disabled={busy}
       >
-        <Text style={[styles.buttonText, styles.buttonSecondaryText]}>
-          保存済みから読み込む（通信なし）
-        </Text>
+        {running === "読み込み" ? (
+          <ActivityIndicator color="#0a7ea4" />
+        ) : (
+          <Text style={[styles.buttonText, styles.buttonSecondaryText]}>
+            保存済みから読み込む（通信なし）
+          </Text>
+        )}
       </Pressable>
 
       <Text style={styles.note}>
