@@ -344,7 +344,7 @@ describe("loadTiles", () => {
 describe("footway の種別の保存", () => {
   it("footway の種別が往復する", async () => {
     // 歩道と横断歩道を区別できないと、コストモデルが大通り沿いの
-    // 歩道を優遇してしまう（docs/design.md#111-footway-の-6-割は道路の付属物未解決）
+    // 歩道を優遇してしまう（docs/design.md#111-footway-の-6-割は道路の付属物）
     const db = await fresh();
     await saveTile(
       db,

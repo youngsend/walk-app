@@ -39,7 +39,7 @@ export type Database = {
  * 2: 使うタグだけを列に。node_tiles を廃止
  * 3: footway の種別を持たせた。歩道・横断歩道を歩行者専用道と
  *    区別しないと、大通り沿いの歩道が最も安い道になってしまう
- *    （docs/design.md#111-footway-の-6-割は道路の付属物未解決）
+ *    （docs/design.md#111-footway-の-6-割は道路の付属物）
  */
 const SCHEMA_VERSION = 3;
 

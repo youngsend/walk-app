@@ -1,3 +1,4 @@
+import { MIN_EDGE_FACTOR } from "./cost";
 import { Edge, Graph, distanceMeters } from "./graph";
 
 /**
@@ -8,12 +9,12 @@ import { Edge, Graph, distanceMeters } from "./graph";
  * 履歴係数は Step 6 で足す。
  *
  * 直線距離を推定値に使った A\* 法。推定値は実コスト以下でなければ
- * 最短性が壊れるが、係数の最小値（歩行者専用道の 0.8）を掛けているので
- * 実コストを超えない。
+ * 最短性が壊れるので、係数の最小値（cost.ts の MIN_EDGE_FACTOR）を掛ける。
+ *
+ * **この値は cost.ts から導く。** 以前は 0.8 を直書きしていたが、
+ * 車線補正 0.9 が掛かると 0.72 まで下がる区間が実データに 195 本あり、
+ * 推定値が実コストを超えて最短性が崩れる状態だった。
  */
-
-/** 種別係数の最小値。これ以上に安い道は無い。docs/design.md#13-コストモデル */
-const MIN_FACTOR = 0.8;
 
 export type Route = {
   /** 通過するノード ID。出発点と目的地を含む */
@@ -78,7 +79,7 @@ export function findRoute(graph: Graph, from: number, to: number): Route | null 
       best.set(next, cost);
       cameFrom.set(next, { node: current, edge });
       // 残りの直線距離に最小の係数を掛けたものは、実コストを超えない
-      const heuristic = distanceMeters(graph.nodes.get(next)!, goal) * MIN_FACTOR;
+      const heuristic = distanceMeters(graph.nodes.get(next)!, goal) * MIN_EDGE_FACTOR;
       queue.push(next, cost + heuristic);
     }
   }
