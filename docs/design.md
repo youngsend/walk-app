@@ -75,7 +75,6 @@ flowchart TB
         SCR["画面 app/"]
         subgraph logic["ロジック lib/"]
             OP["overpass"]
-            SY["tile-sync"]
             DB["db"]
             GR["graph"]
             RT["route"]
@@ -83,7 +82,7 @@ flowchart TB
         SQL[("walk.db<br/>数タイル分")]
     end
 
-    OV --> OP --> SY --> DB --> SQL
+    OV --> OP --> DB --> SQL
     SQL --> DB --> GR --> RT --> SCR
     AM --> SCR
     GPS --> SCR
@@ -153,7 +152,7 @@ Overpass とも Apple Maps とも関係しない。
 | 探索 | `lib/route` | A\* でコスト最小の経路を探す |
 | グラフ | `lib/graph` | way を交差点とエッジに変換、到達可能性 |
 | 重み | `lib/cost` | 種別係数・車線補正 |
-| 取得と保存 | `lib/overpass` `lib/tile-sync` `lib/db` `lib/store` | 外部との境界 |
+| 取得と保存 | `lib/db` `lib/store`（`lib/overpass` は開発中のみ） | 外部との境界 |
 | 座標 | `lib/tiles` | タイル ID の計算。何にも依存しない |
 
 **外部に触るモジュールは口を型で切ってある**（`Database` / `ProbeSqlite` / `TileSource`）。

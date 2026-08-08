@@ -4,7 +4,6 @@ import {
   tileAt,
   tileBounds,
   tileKey,
-  tilesAround,
 } from "@/lib/tiles";
 
 /** 開発時の初期エリア。docs/design.md#21-タイルの定義 */
@@ -91,24 +90,6 @@ describe("tileKey", () => {
       { x: -2, y: -3 },
     ]) {
       expect(parseTileKey(tileKey(tile))).toEqual(tile);
-    }
-  });
-});
-
-describe("tilesAround", () => {
-  it("中心を含む 9 枚を返す", () => {
-    const center = { x: 6985, y: 1781 };
-    const tiles = tilesAround(center);
-    expect(tiles).toHaveLength(9);
-    expect(tiles).toContainEqual(center);
-    expect(new Set(tiles.map(tileKey)).size).toBe(9);
-  });
-
-  it("中心から上下左右 1 枚ずつの範囲に収まる", () => {
-    const center = { x: 10, y: 20 };
-    for (const t of tilesAround(center)) {
-      expect(Math.abs(t.x - center.x)).toBeLessThanOrEqual(1);
-      expect(Math.abs(t.y - center.y)).toBeLessThanOrEqual(1);
     }
   });
 });

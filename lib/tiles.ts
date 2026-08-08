@@ -42,14 +42,3 @@ export function tileBounds(tile: TileId) {
     east: ((tile.x + 1) * UNITS_PER_TILE) / SCALE,
   };
 }
-
-/** 中心タイルとその周囲 8 枚。 */
-export function tilesAround(tile: TileId): TileId[] {
-  const tiles: TileId[] = [];
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      tiles.push({ x: tile.x + dx, y: tile.y + dy });
-    }
-  }
-  return tiles;
-}
