@@ -249,7 +249,19 @@ OSM ID なら、上表の通り 3 年で 98.3% の way がそのままなので�
 | Xcode | 未インストール。macOS 12 では 16.1 以上が入らない |
 | gh CLI | 公式ビルド済みバイナリを `~/.local/bin/gh` に配置済み |
 
-環境制約が要件に与える影響は [requirements.md](./requirements.md#環境制約) を参照。
+### ネイティブビルドができない理由
+
+| 項目 | 現状 | Expo SDK 54 の要求 |
+|---|---|---|
+| macOS | 12.7.6 (Monterey) | Xcode 16.1 のために 14 以上が必要 |
+| Xcode | 未インストール（Command Line Tools のみ） | 16.1 以上 |
+
+**解消するには（将来必要になったら）:**
+
+1. macOS を 14 以上にアップグレードし Xcode 16.1 以上を入れる
+2. EAS Build を使う。ただし実機用の開発ビルドには Apple Developer Program（年 $99）が必要
+
+要件への影響は [requirements.md](./requirements.md#環境制約) を参照。
 
 ### 採用ライブラリ
 
