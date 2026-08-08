@@ -70,10 +70,19 @@ tertiary 48 / primary 23 / steps 20 / secondary 17 / pedestrian 11 / path 11
 | `primary` | 8.0 | 強く避けるが、通行は許容する |
 | `motorway`, `trunk` | 通行不可 | 歩行者が入れない |
 
+**表に無い種別** — 実データには上表で網羅できない種別が少数含まれる
+（1 タイルの実測で `primary_link` 9本・`cycleway` 4本・`rest_area` 1本・`corridor` 1本）。
+
+- `*_link`（接続路）→ 接続元と同じ係数（`primary_link` なら 8.0）
+- それ以外 → **1.0**（`residential` と同じ扱い）
+
 **`lanes` による補正** — タグが存在する場合のみ適用（無ければ補正なし）:
 
 - `lanes >= 2` → 係数を 1.5 倍
 - `lanes <= 1` → 係数を 0.9 倍
+
+補正後の値の例: `primary` かつ `lanes=2` → 8.0 × 1.5 = **12.0**。
+1 タイルの実測では、`primary` のエッジ 199 本のうち 194 本がこの 12.0 になる。
 
 **履歴係数** — [F-9](./requirements.md#f-9-ルートの多様性) を実現する項。[F-11](./requirements.md#f-11-歩いた道の記録) が記録した「歩いた区間」の係数を上げ、時間経過で 1.0 に戻す（2 週間程度を想定）。
 

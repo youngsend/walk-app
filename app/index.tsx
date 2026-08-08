@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -8,6 +8,7 @@ import {
   View,
 } from "react-native";
 
+import { buildGraph, neighbors } from "@/lib/graph";
 import { countByHighway, fetchTile, TileData } from "@/lib/overpass";
 import { tileAt, tileBounds, tileKey } from "@/lib/tiles";
 
@@ -23,6 +24,26 @@ export default function Index() {
   const tile = tileAt(DEV_LAT, DEV_LON);
   const bounds = tileBounds(tile);
 
+  const graph = useMemo(() => (data ? buildGraph(data) : null), [data]);
+
+  const stats = useMemo(() => {
+    if (!graph) return null;
+    const totalM = graph.edges.reduce((sum, e) => sum + e.length, 0);
+    const isolated = [...graph.nodes.keys()].filter(
+      (id) => neighbors(graph, id).length === 0,
+    ).length;
+    const sample = [...graph.nodes.keys()].find(
+      (id) => neighbors(graph, id).length >= 3,
+    );
+    return {
+      totalKm: totalM / 1000,
+      averageM: totalM / graph.edges.length,
+      isolated,
+      sample,
+      sampleNeighbors: sample ? neighbors(graph, sample) : [],
+    };
+  }, [graph]);
+
   async function load() {
     setLoading(true);
     setError(null);
@@ -37,12 +58,12 @@ export default function Index() {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Text style={styles.heading}>Step 1-1: タイル取得</Text>
+      <Text style={styles.heading}>Step 1: 道路網とグラフ</Text>
 
       <View style={styles.card}>
         <Row label="タイル" value={tileKey(tile)} />
-        <Row label="南西" value={`${bounds.south.toFixed(2)}, ${bounds.west.toFixed(2)}`} />
-        <Row label="北東" value={`${bounds.north.toFixed(2)}, ${bounds.east.toFixed(2)}`} />
+        <Row label="南西" value={`${bounds.south}, ${bounds.west}`} />
+        <Row label="北東" value={`${bounds.north}, ${bounds.east}`} />
       </View>
 
       <Pressable
@@ -68,12 +89,41 @@ export default function Index() {
       )}
 
       {data && (
+        <View style={styles.card}>
+          <Row label="way" value={data.ways.length.toLocaleString()} expected="1,806" />
+          <Row label="node" value={data.nodes.length.toLocaleString()} expected="6,391" />
+        </View>
+      )}
+
+      {graph && stats && (
         <>
+          <Text style={styles.subheading}>グラフ（1-2）</Text>
           <View style={styles.card}>
-            <Row label="way" value={data.ways.length.toLocaleString()} expected="1,806" />
-            <Row label="node" value={data.nodes.length.toLocaleString()} expected="6,391" />
+            <Row
+              label="交差点ノード"
+              value={graph.nodes.size.toLocaleString()}
+              expected="2,767"
+            />
+            <Row
+              label="エッジ"
+              value={graph.edges.length.toLocaleString()}
+              expected="3,777"
+            />
+            <Row label="総延長" value={`${stats.totalKm.toFixed(1)} km`} expected="162.9 km" />
+            <Row label="平均区間長" value={`${stats.averageM.toFixed(1)} m`} />
+            <Row label="孤立ノード" value={String(stats.isolated)} expected="0" />
           </View>
 
+          <Text style={styles.subheading}>隣接ノードの列挙</Text>
+          <View style={styles.card}>
+            <Row label="node" value={String(stats.sample ?? "-")} />
+            <Row label="接続先" value={stats.sampleNeighbors.join(", ") || "-"} />
+          </View>
+        </>
+      )}
+
+      {data && (
+        <>
           <Text style={styles.subheading}>highway 種別</Text>
           <View style={styles.card}>
             {countByHighway(data.ways).map(([type, count]) => (
@@ -98,7 +148,7 @@ function Row({
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue}>
+      <Text style={styles.rowValue} numberOfLines={2}>
         {value}
         {expected && <Text style={styles.rowExpected}>{`  (実測 ${expected})`}</Text>}
       </Text>
@@ -123,12 +173,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: 12,
     paddingVertical: 9,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#ddd",
   },
   rowLabel: { fontSize: 15, color: "#333" },
-  rowValue: { fontSize: 15, fontVariant: ["tabular-nums"], fontWeight: "500" },
+  rowValue: {
+    flexShrink: 1,
+    fontSize: 15,
+    fontVariant: ["tabular-nums"],
+    fontWeight: "500",
+    textAlign: "right",
+  },
   rowExpected: { fontWeight: "400", color: "#888" },
   button: {
     backgroundColor: "#0a7ea4",
