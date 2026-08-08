@@ -1,4 +1,4 @@
-import { Link } from "expo-router";
+import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -25,6 +25,7 @@ type Source = "取得" | "保存済み" | null;
 type Running = "起動" | "取得" | "読み込み" | null;
 
 export default function Index() {
+  const router = useRouter();
   const [data, setData] = useState<TileData | null>(null);
   const [source, setSource] = useState<Source>(null);
   const [stored, setStored] = useState<TileId[]>([]);
@@ -142,14 +143,13 @@ export default function Index() {
         Overpass は公共の無料サービス。何度も叩かないこと。
       </Text>
 
-      <Link href="/probe" asChild>
-        <Pressable
-          style={({ pressed }) => [styles.linkRow, pressed && styles.linkRowPressed]}
-        >
-          <Text style={styles.linkText}>Step 1-4: 900MB の DB を試す</Text>
-          <Text style={styles.linkChevron}>›</Text>
-        </Pressable>
-      </Link>
+      <Pressable
+        style={({ pressed }) => [styles.linkRow, pressed && styles.linkRowPressed]}
+        onPress={() => router.push("/probe")}
+      >
+        <Text style={styles.linkText}>Step 1-4: 900MB の DB を試す</Text>
+        <Text style={styles.linkChevron}>›</Text>
+      </Pressable>
 
       {error && (
         <View style={[styles.card, styles.errorCard]}>
