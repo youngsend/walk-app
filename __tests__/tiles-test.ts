@@ -123,7 +123,9 @@ describe("tilesAround", () => {
 });
 
 describe("tilesForRoute", () => {
-  const FROM = { lat: 35.62, lon: 139.7 };
+  // **タイルの角ではない点を使う。** 開発エリア (35.62, 139.7) はちょうど
+  // タイル 6985/1781 の南西角で、そこを起点にするとどの判定も素通りしてしまう
+  const FROM = { lat: 35.6301, lon: 139.7099 };
 
   it("同じ地点なら、その 1 枚を含む", () => {
     const tiles = tilesForRoute(FROM, FROM);
@@ -174,5 +176,35 @@ describe("tilesForRoute", () => {
     const to = { lat: 35.7, lon: 139.745 };
     const tiles = tilesForRoute(FROM, to);
     expect(new Set(tiles.map(tileKey)).size).toBe(tiles.length);
+  });
+
+  it("タイルの辺の真ん中にいても、そのタイルを返す", () => {
+    // **回帰テスト。** 中心と四隅の 5 点でしか判定しておらず、辺の中央は
+    // どの標本点からも遠いため、出発地を含むタイル自身が落ちて 0 枚になり、
+    // 画面に「道路網が入っていない」と出ていた
+    const bounds = tileBounds({ x: 6985, y: 1781 });
+    const from = { lat: bounds.south + 0.0001, lon: (bounds.west + bounds.east) / 2 };
+    const to = { lat: from.lat + 0.0027, lon: from.lon };
+
+    const tiles = tilesForRoute(from, to);
+
+    expect(tiles.length).toBeGreaterThan(0);
+    expect(tiles).toContainEqual(tileAt(from.lat, from.lon));
+    expect(tiles).toContainEqual(tileAt(to.lat, to.lon));
+  });
+
+  it("タイルのどこに立っても、そのタイルを返す", () => {
+    // 1 枚を 20×20 に刻んで、どこを起点にしても落ちないこと
+    const bounds = tileBounds({ x: 6985, y: 1781 });
+    for (let i = 0; i < 20; i++) {
+      for (let j = 0; j < 20; j++) {
+        const from = {
+          lat: bounds.south + (TILE_SIZE * (i + 0.5)) / 20,
+          lon: bounds.west + (TILE_SIZE * (j + 0.5)) / 20,
+        };
+        const to = { lat: from.lat + 0.0027, lon: from.lon };
+        expect(tilesForRoute(from, to)).toContainEqual(tileAt(from.lat, from.lon));
+      }
+    }
   });
 });

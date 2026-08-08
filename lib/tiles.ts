@@ -76,12 +76,23 @@ export function tilesForRoute(
   const a = tileAt(from.lat, from.lon);
   const b = tileAt(to.lat, to.lon);
 
-  const tiles: TileId[] = [];
+  // **両端のタイルは無条件で入れる。** ここが欠けると経路の引きようがない。
+  // 標本点による判定だけに任せると、タイルの辺の中央に立ったときに
+  // 自分のタイルが落ちて 0 枚になっていた
+  const seen = new Set<string>([tileKey(a), tileKey(b)]);
+  const tiles: TileId[] = [a];
+  if (tileKey(b) !== tileKey(a)) tiles.push(b);
+
   // 楕円は必ずこの矩形に収まる。その中だけを調べる
   const reach = Math.ceil(budget / metersPerTileLat()) + 1;
   for (let y = Math.min(a.y, b.y) - reach; y <= Math.max(a.y, b.y) + reach; y++) {
     for (let x = Math.min(a.x, b.x) - reach; x <= Math.max(a.x, b.x) + reach; x++) {
-      if (closestSum({ x, y }, from, to) <= budget) tiles.push({ x, y });
+      const key = tileKey({ x, y });
+      if (seen.has(key)) continue;
+      if (closestSum({ x, y }, from, to) <= budget) {
+        seen.add(key);
+        tiles.push({ x, y });
+      }
     }
   }
   return tiles;
@@ -90,22 +101,26 @@ export function tilesForRoute(
 /**
  * タイルの中で `d(from, p) + d(p, to)` が最も小さい点の値。
  *
- * 四隅と中心で代表させる。厳密な最小ではないが、`detourFactor` に
+ * 格子状に刻んで代表させる。厳密な最小ではないが、`detourFactor` に
  * 実測（1.37 倍）より余裕を持たせてあるので、この粗さは吸収される。
+ *
+ * **四隅と中心の 5 点では粗すぎた。** 辺の中央がどの標本点からも遠く、
+ * 本来入るべきタイルが落ちていた。
  */
+const SAMPLES_PER_SIDE = 5;
+
 function closestSum(tile: TileId, from: LatLon, to: LatLon): number {
   const b = tileBounds(tile);
-  const points: LatLon[] = [
-    { lat: (b.south + b.north) / 2, lon: (b.west + b.east) / 2 },
-    { lat: b.south, lon: b.west },
-    { lat: b.south, lon: b.east },
-    { lat: b.north, lon: b.west },
-    { lat: b.north, lon: b.east },
-  ];
   let best = Infinity;
-  for (const p of points) {
-    const sum = distanceMeters(from, p) + distanceMeters(p, to);
-    if (sum < best) best = sum;
+  for (let i = 0; i < SAMPLES_PER_SIDE; i++) {
+    for (let j = 0; j < SAMPLES_PER_SIDE; j++) {
+      const p = {
+        lat: b.south + (TILE_SIZE * i) / (SAMPLES_PER_SIDE - 1),
+        lon: b.west + (TILE_SIZE * j) / (SAMPLES_PER_SIDE - 1),
+      };
+      const sum = distanceMeters(from, p) + distanceMeters(p, to);
+      if (sum < best) best = sum;
+    }
   }
   return best;
 }
