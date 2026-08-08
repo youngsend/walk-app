@@ -2,6 +2,7 @@ import {
   areConnected,
   buildGraph,
   distanceMeters,
+  edgeNode,
   largestComponentSize,
   neighbors,
   reachableFrom,
@@ -245,5 +246,43 @@ describe("largestComponentSize", () => {
   it("全て繋がっていればノード数と一致する", () => {
     const g = buildGraph(tile([way(1, [1, 2]), way(2, [2, 3])], grid(3)));
     expect(largestComponentSize(g)).toBe(g.nodes.size);
+  });
+});
+
+describe("edgeNode", () => {
+  /** 経度だけを散らしたノード。id と経度が対応する */
+  function spread(lons: number[]): OsmNode[] {
+    return lons.map((lon, i) => ({ id: i + 1, lat: 35.63, lon }));
+  }
+
+  const TILE = { x: 6985, y: 1781 }; // 経度 139.70〜139.72
+
+  it("タイル内で最も西のノードを返す", () => {
+    const nodes = spread([139.705, 139.715, 139.71]);
+    const g = buildGraph(tile([way(1, [1, 2]), way(2, [2, 3])], nodes));
+    expect(edgeNode(g, TILE, "west")).toBe(1);
+  });
+
+  it("タイル内で最も東のノードを返す", () => {
+    const nodes = spread([139.705, 139.715, 139.71]);
+    const g = buildGraph(tile([way(1, [1, 2]), way(2, [2, 3])], nodes));
+    expect(edgeNode(g, TILE, "east")).toBe(2);
+  });
+
+  it("タイルの外にあるノードは選ばない", () => {
+    // 1 は隣のタイル（139.69）、2 と 3 がこのタイル内
+    const nodes = spread([139.69, 139.705, 139.715]);
+    const g = buildGraph(tile([way(1, [1, 2]), way(2, [2, 3])], nodes));
+    expect(edgeNode(g, TILE, "west")).toBe(2);
+  });
+
+  it("タイル内にノードが無ければ undefined", () => {
+    const nodes = spread([139.69, 139.68]);
+    const g = buildGraph(tile([way(1, [1, 2])], nodes));
+    expect(edgeNode(g, TILE, "west")).toBeUndefined();
+  });
+
+  it("空のグラフでも落ちない", () => {
+    expect(edgeNode(buildGraph(tile([], [])), TILE, "west")).toBeUndefined();
   });
 });

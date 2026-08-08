@@ -10,7 +10,13 @@ import {
 } from "react-native";
 
 import { hasTile, loadTiles, savedTiles, saveTile } from "@/lib/db";
-import { buildGraph, neighbors } from "@/lib/graph";
+import {
+  areConnected,
+  buildGraph,
+  edgeNode,
+  largestComponentSize,
+  neighbors,
+} from "@/lib/graph";
 import { countByHighway, fetchTile, TileData } from "@/lib/overpass";
 import { openStore } from "@/lib/store";
 import { tileAt, tileBounds, TileId, tileKey } from "@/lib/tiles";
@@ -22,7 +28,7 @@ const DEV_LON = 139.7;
 type Source = "取得" | "保存済み" | null;
 
 /** 実行中の操作。押されたボタンにだけスピナーを出すために持つ。 */
-type Running = "起動" | "取得" | "読み込み" | null;
+type Running = "起動" | "取得" | "隣を取得" | "読み込み" | null;
 
 export default function Index() {
   const router = useRouter();
@@ -35,6 +41,8 @@ export default function Index() {
   const busy = running !== null;
 
   const tile = useMemo(() => tileAt(DEV_LAT, DEV_LON), []);
+  /** 東隣。1-5 の接続確認に使う */
+  const eastTile = useMemo(() => ({ x: tile.x + 1, y: tile.y }), [tile]);
   const bounds = tileBounds(tile);
 
   const graph = useMemo(() => (data ? buildGraph(data) : null), [data]);
@@ -48,14 +56,26 @@ export default function Index() {
     const sample = [...graph.nodes.keys()].find(
       (id) => neighbors(graph, id).length >= 3,
     );
+    // 1-5: タイルの端から隣のタイルの端まで辿れるか
+    const west = edgeNode(graph, tile, "west");
+    const east = edgeNode(graph, eastTile, "east");
+    const largest = largestComponentSize(graph);
+
     return {
       totalKm: totalM / 1000,
       averageM: totalM / graph.edges.length,
       isolated,
       sample,
       sampleNeighbors: sample ? neighbors(graph, sample) : [],
+      west,
+      east,
+      largest,
+      crossesTiles:
+        west !== undefined && east !== undefined
+          ? areConnected(graph, west, east)
+          : undefined,
     };
-  }, [graph]);
+  }, [graph, tile, eastTile]);
 
   const run = useCallback(
     async (label: Exclude<Running, null>, fn: () => Promise<void>) => {
@@ -76,9 +96,10 @@ export default function Index() {
   useEffect(() => {
     run("起動", async () => {
       const db = await openStore();
-      setStored(await savedTiles(db));
-      if (await hasTile(db, tile)) {
-        setData(await loadTiles(db, [tile]));
+      const tiles = await savedTiles(db);
+      setStored(tiles);
+      if (tiles.length > 0) {
+        setData(await loadTiles(db, tiles));
         setSource("保存済み");
       }
     });
@@ -97,7 +118,22 @@ export default function Index() {
   const reloadFromStore = () =>
     run("読み込み", async () => {
       const db = await openStore();
-      setData(await loadTiles(db, [tile]));
+      const tiles = await savedTiles(db);
+      setStored(tiles);
+      setData(await loadTiles(db, tiles));
+      setSource("保存済み");
+    });
+
+  /** 1-5: 東隣のタイルを足して、境界をまたいで繋がるか見る */
+  const downloadEast = () =>
+    run("隣を取得", async () => {
+      const db = await openStore();
+      if (!(await hasTile(db, eastTile))) {
+        await saveTile(db, eastTile, await fetchTile(eastTile));
+      }
+      const tiles = await savedTiles(db);
+      setStored(tiles);
+      setData(await loadTiles(db, tiles));
       setSource("保存済み");
     });
 
@@ -122,6 +158,18 @@ export default function Index() {
           <ActivityIndicator color="#fff" />
         ) : (
           <Text style={styles.buttonText}>Overpass から取得して保存</Text>
+        )}
+      </Pressable>
+
+      <Pressable
+        style={[styles.button, busy && styles.buttonDisabled]}
+        onPress={downloadEast}
+        disabled={busy}
+      >
+        {running === "隣を取得" ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.buttonText}>東隣のタイルも取得（1-5）</Text>
         )}
       </Pressable>
 
@@ -181,7 +229,31 @@ export default function Index() {
             <Row label="総延長" value={`${stats.totalKm.toFixed(1)} km`} expected="162.9 km" />
             <Row label="平均区間長" value={`${stats.averageM.toFixed(1)} m`} />
             <Row label="孤立ノード" value={String(stats.isolated)} expected="0" />
+            <Row
+              label="最大の連結成分"
+              value={`${stats.largest.toLocaleString()} / ${graph.nodes.size.toLocaleString()}`}
+            />
           </View>
+
+          {stored.length >= 2 && (
+            <>
+              <Text style={styles.subheading}>タイルの接続（1-5）</Text>
+              <View style={styles.card}>
+                <Row label="西端のノード" value={String(stats.west ?? "-")} />
+                <Row label="東隣の東端" value={String(stats.east ?? "-")} />
+                <Row
+                  label="端から端まで辿れる"
+                  value={
+                    stats.crossesTiles === undefined
+                      ? "判定できず"
+                      : stats.crossesTiles
+                        ? "はい"
+                        : "いいえ"
+                  }
+                />
+              </View>
+            </>
+          )}
 
           <Text style={styles.subheading}>隣接ノードの列挙</Text>
           <View style={styles.card}>

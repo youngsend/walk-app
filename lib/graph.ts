@@ -1,5 +1,6 @@
 import { edgeFactor } from "./cost";
 import { OsmNode, OsmWay, TileData } from "./overpass";
+import { TileId, tileBounds } from "./tiles";
 
 /**
  * OSM の way 列を経路探索できるグラフに変換する。
@@ -179,4 +180,34 @@ export function largestComponentSize(graph: Graph): number {
     if (component.size > largest) largest = component.size;
   }
   return largest;
+}
+
+/**
+ * タイルの中で最も西／東にあるノード。
+ *
+ * 隣接タイルが繋がっているかを「一方の端から他方の端まで辿れるか」で
+ * 確かめるために使う（docs/development-plan.md の Step 1-5）。
+ * 境界のすぐ近くではなく端どうしを選ぶことで、境界をまたいで
+ * 実際にグラフが繋がっていることを確かめられる。
+ */
+export function edgeNode(
+  graph: Graph,
+  tile: TileId,
+  side: "west" | "east",
+): number | undefined {
+  const bounds = tileBounds(tile);
+  let best: number | undefined;
+  let bestLon = side === "west" ? Infinity : -Infinity;
+
+  for (const [id, node] of graph.nodes) {
+    // Overpass は bbox の外まで返すので、タイル内のノードだけに絞る
+    if (node.lat < bounds.south || node.lat >= bounds.north) continue;
+    if (node.lon < bounds.west || node.lon >= bounds.east) continue;
+
+    if (side === "west" ? node.lon < bestLon : node.lon > bestLon) {
+      bestLon = node.lon;
+      best = id;
+    }
+  }
+  return best;
 }
