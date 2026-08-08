@@ -1,4 +1,11 @@
-import { buildGraph, distanceMeters, neighbors } from "@/lib/graph";
+import {
+  areConnected,
+  buildGraph,
+  distanceMeters,
+  largestComponentSize,
+  neighbors,
+  reachableFrom,
+} from "@/lib/graph";
 import { OsmNode, OsmWay, TileData } from "@/lib/overpass";
 
 /**
@@ -96,12 +103,23 @@ describe("buildGraph", () => {
     }
   });
 
-  it("環状の way でも同じ点に戻る区間を作らない", () => {
-    const nodes = grid(4);
-    const g = buildGraph(tile([way(1, [1, 2, 3, 1])], nodes));
-    for (const e of g.edges) {
-      expect(e.from).not.toBe(e.to);
-    }
+  it("環状の way を弧に分ける", () => {
+    // ロータリーや公園の周回路。他の道が繋がるノードで切る
+    const g = buildGraph(tile([way(1, [1, 2, 3, 1]), way(2, [2, 4])], grid(4)));
+
+    const ring = g.edges.filter((e) => e.wayId === 1);
+    expect(ring.length).toBeGreaterThan(0);
+    // 長さ 0 のループを作らない
+    for (const e of ring) expect(e.from).not.toBe(e.to);
+    // 環をたどって元に戻れる
+    expect(areConnected(g, 1, 2)).toBe(true);
+  });
+
+  it("どこにも繋がらない環状路は落とす", () => {
+    // 閉じた環だけで、他の way と共有するノードが無い形。
+    // 切る場所が無く、経路としても到達できないので落として構わない
+    const g = buildGraph(tile([way(1, [1, 2, 3, 1])], grid(3)));
+    expect(g.edges).toHaveLength(0);
   });
 
   it("座標が欠けた way は無視する", () => {
@@ -140,5 +158,92 @@ describe("neighbors", () => {
   it("知らないノードでは空を返す", () => {
     const g = buildGraph(tile([way(1, [1, 2])], grid(2)));
     expect(neighbors(g, 999)).toEqual([]);
+  });
+});
+
+describe("reachableFrom", () => {
+  it("繋がっているノードをすべて返す", () => {
+    const g = buildGraph(tile([way(1, [1, 2]), way(2, [2, 3])], grid(3)));
+    expect([...reachableFrom(g, 1)].sort((a, b) => a - b)).toEqual([1, 2, 3]);
+  });
+
+  it("出発点そのものを含む", () => {
+    const g = buildGraph(tile([way(1, [1, 2])], grid(2)));
+    expect(reachableFrom(g, 1).has(1)).toBe(true);
+  });
+
+  it("分断された先には届かない", () => {
+    // 1-2 と 3-4 は繋がっていない
+    const g = buildGraph(tile([way(1, [1, 2]), way(2, [3, 4])], grid(4)));
+    expect(reachableFrom(g, 1).has(3)).toBe(false);
+    expect(reachableFrom(g, 1).size).toBe(2);
+  });
+
+  it("知らないノードからは空を返す", () => {
+    const g = buildGraph(tile([way(1, [1, 2])], grid(2)));
+    expect(reachableFrom(g, 999).size).toBe(0);
+  });
+
+  it("環状でも無限に回らない", () => {
+    // 環をたどって出発点に戻ってくる形。訪問済みを覚えていないと終わらない
+    const g = buildGraph(tile([way(1, [1, 2, 3, 1]), way(2, [2, 4])], grid(4)));
+    const reached = reachableFrom(g, 1);
+
+    expect(reached.has(1)).toBe(true);
+    expect(reached.has(2)).toBe(true);
+    expect(reached.has(4)).toBe(true);
+  });
+});
+
+describe("areConnected", () => {
+  it("繋がっていれば true", () => {
+    const g = buildGraph(tile([way(1, [1, 2]), way(2, [2, 3])], grid(3)));
+    expect(areConnected(g, 1, 3)).toBe(true);
+  });
+
+  it("繋がっていなければ false", () => {
+    const g = buildGraph(tile([way(1, [1, 2]), way(2, [3, 4])], grid(4)));
+    expect(areConnected(g, 1, 3)).toBe(false);
+  });
+
+  it("隣接タイル由来の way が 1 本に繋がる", () => {
+    // ここが 1-5 の肝。Overpass は bbox の外まで含めた形状を返すので、
+    // 隣り合うタイルには同じ way が入り、node ID が一致する。
+    // タイル A の端（1）から、タイル B の端（5）まで辿れること
+    const tileA = [way(1, [1, 2]), way(2, [2, 3])]; // 3 が境界のノード
+    const tileB = [way(2, [2, 3]), way(3, [3, 4]), way(4, [4, 5])];
+    // loadTiles は way ID で重複を排除するので、way 2 は 1 つだけになる
+    const merged = new Map<number, OsmWay>();
+    for (const w of [...tileA, ...tileB]) merged.set(w.id, w);
+
+    const g = buildGraph(tile([...merged.values()], grid(5)));
+
+    expect(areConnected(g, 1, 5)).toBe(true);
+  });
+
+  it("境界の node が片方のタイルにしか無くても繋がる", () => {
+    // way は両タイルに入るが、node は片方にしか無いことがある。
+    // loadTiles が両方から集めるので、グラフ上は繋がる
+    const g = buildGraph(tile([way(1, [1, 2]), way(2, [2, 3])], grid(3)));
+    expect(areConnected(g, 1, 3)).toBe(true);
+  });
+});
+
+describe("largestComponentSize", () => {
+  it("最大の連結成分の大きさを返す", () => {
+    // 1-2-3 の 3 つと、4-5 の 2 つ
+    const g = buildGraph(
+      tile([way(1, [1, 2]), way(2, [2, 3]), way(3, [4, 5])], grid(5)),
+    );
+    expect(largestComponentSize(g)).toBe(3);
+  });
+
+  it("空のグラフでは 0", () => {
+    expect(largestComponentSize(buildGraph(tile([], [])))).toBe(0);
+  });
+
+  it("全て繋がっていればノード数と一致する", () => {
+    const g = buildGraph(tile([way(1, [1, 2]), way(2, [2, 3])], grid(3)));
+    expect(largestComponentSize(g)).toBe(g.nodes.size);
   });
 });

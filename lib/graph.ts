@@ -133,3 +133,50 @@ export function neighbors(graph: Graph, nodeId: number): number[] {
   const list = graph.adjacency.get(nodeId) ?? [];
   return list.map((e) => (e.from === nodeId ? e.to : e.from));
 }
+
+/**
+ * あるノードから辿り着けるノードの集合。出発点自身を含む。
+ *
+ * 隣接タイルが正しく繋がっているかを確かめるために使う
+ * （docs/development-plan.md の Step 1-5）。
+ * Step 2 の経路探索も同じ隣接リストを辿る。
+ */
+export function reachableFrom(graph: Graph, start: number): Set<number> {
+  const seen = new Set<number>();
+  if (!graph.nodes.has(start)) return seen;
+
+  const stack = [start];
+  seen.add(start);
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    for (const next of neighbors(graph, current)) {
+      if (!seen.has(next)) {
+        seen.add(next);
+        stack.push(next);
+      }
+    }
+  }
+  return seen;
+}
+
+/** 2 つのノードが繋がっているか。 */
+export function areConnected(graph: Graph, a: number, b: number): boolean {
+  return reachableFrom(graph, a).has(b);
+}
+
+/**
+ * 最大の連結成分に含まれるノード数。
+ * 全体のノード数と大きく離れていれば、グラフが分断されている。
+ */
+export function largestComponentSize(graph: Graph): number {
+  const seen = new Set<number>();
+  let largest = 0;
+
+  for (const id of graph.nodes.keys()) {
+    if (seen.has(id)) continue;
+    const component = reachableFrom(graph, id);
+    for (const member of component) seen.add(member);
+    if (component.size > largest) largest = component.size;
+  }
+  return largest;
+}
