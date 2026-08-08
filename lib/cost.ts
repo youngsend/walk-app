@@ -60,8 +60,11 @@ export function highwayFactor(highway: string): number {
  * これを 0.8 で優遇すると**大通り沿いの歩道が最も安い道になり**、
  * 経路の統計に primary が出てこないまま幹線沿いを歩くことになる。
  *
- * 歩道を 1.5 にしたのは、日本では歩道が別に描かれる道路がおおむね
- * tertiary 以上だからで、「幹線沿いの proxy」として基準より不利にしてある。
+ * 歩道を 1.5 にしたのは「幹線沿いの proxy」として基準より不利にするため。
+ * 実測では、別線で描かれた歩道の 92% が tertiary 以上の道路に沿っていた
+ * （docs/design.md#sidewalk-は本当に幹線の歩道か実測）。
+ *
+ * ただし残り 8% は生活道路の歩道で、**気持ちよく歩ける道が減点される**。
  * 値は初期値。実際に歩いて調整する（docs/requirements.md#7-未決事項）。
  */
 const FOOTWAY_FACTOR: Record<string, number> = {
