@@ -1,3 +1,4 @@
+import { Link } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -140,6 +141,14 @@ export default function Index() {
       <Text style={styles.note}>
         Overpass は公共の無料サービス。何度も叩かないこと。
       </Text>
+
+      <Link href="/probe" asChild>
+        <Pressable style={[styles.button, styles.buttonSecondary]}>
+          <Text style={[styles.buttonText, styles.buttonSecondaryText]}>
+            Step 1-4: 900MB の DB を試す
+          </Text>
+        </Pressable>
+      </Link>
 
       {error && (
         <View style={[styles.card, styles.errorCard]}>
