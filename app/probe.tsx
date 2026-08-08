@@ -18,7 +18,7 @@ import {
   initProbe,
   probeQuery,
 } from "@/lib/probe";
-import { createProbeStore, ProbeSqlite } from "@/lib/probe-store";
+import { createProbeStore, ProbeFiles, ProbeSqlite } from "@/lib/probe-store";
 
 /**
  * Step 1-4: Expo Go が 900MB の DB を扱えるか確かめる。
@@ -44,6 +44,12 @@ function inspectDisk(): DiskEntry[] {
     .sort((a, b) => b.bytes - a.bytes);
 }
 
+/** expo-sqlite が消しきれなかったときの、ファイル直接削除。 */
+const probeFiles: ProbeFiles = {
+  list: () => inspectDisk().map((e) => e.name),
+  delete: (name) => new File(SQLite.defaultDatabaseDirectory, name).delete(),
+};
+
 export default function Probe() {
   const [disk, setDisk] = useState<DiskEntry[]>([]);
   const [bytes, setBytes] = useState(0);
@@ -55,7 +61,9 @@ export default function Probe() {
   const busy = running !== null;
 
   /** 開閉と削除の順序は lib/probe-store.ts が持つ（テスト済み）。 */
-  const store = useRef(createProbeStore(SQLite as unknown as ProbeSqlite, PROBE_DB));
+  const store = useRef(
+    createProbeStore(SQLite as unknown as ProbeSqlite, PROBE_DB, probeFiles),
+  );
 
   async function open(): Promise<Database> {
     const db = await store.current.open();
@@ -102,10 +110,19 @@ export default function Probe() {
 
   const remove = () =>
     run("削除", async () => {
-      await store.current.remove();
+      const report = await store.current.remove();
       setBytes(0);
       setResult(null);
       setDisk(inspectDisk());
+
+      if (report.remaining.length > 0) {
+        setError(
+          `消せなかった: ${report.remaining.join(", ")}` +
+            (report.error ? `\n${report.error}` : ""),
+        );
+      } else if (report.forceDeleted.length > 0) {
+        setResult(`ファイルを直接削除: ${report.forceDeleted.join(", ")}`);
+      }
     });
 
   const inspect = () =>
