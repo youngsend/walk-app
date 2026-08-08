@@ -11,12 +11,26 @@
 
 ## 0. 全体構成
 
+### 3 つの入力は別物
+
+混同しやすいので先に分けておく。
+
+| 何を得るか | どこから | 通信 |
+|---|---|---|
+| **自分の位置** | iPhone の GPS（`expo-location`） | **不要。** 衛星から受信するだけ |
+| **経路探索に使う道路データ** | Overpass → Step 4 以降は Geofabrik | 取得するときだけ |
+| 画面に見える地図の絵 | Apple Maps | 表示のたび |
+
+**Overpass は道路データを取るためだけのもので、現在地とは無関係。**
+しかも役目は一時的で、[F-10](./requirements.md#f-10-オフラインデータの一括投入) で関東全域を入れたあとは、
+圏外のエリアを足すときにしか使わない。
+
 ### 何がどこにあるか
 
 ```mermaid
 flowchart TB
-    subgraph outside["外部（通信するのはここだけ）"]
-        OV["Overpass API<br/>タイル単位の取得"]
+    subgraph outside["外部"]
+        OV["Overpass API<br/>タイル単位の取得<br/>（開発中と圏外用）"]
         GF["Geofabrik<br/>関東 7 県の一括配布"]
         AM["Apple Maps<br/>地図の絵"]
     end
@@ -26,6 +40,7 @@ flowchart TB
     end
 
     subgraph app["iPhone（Expo Go）"]
+        GPS["GPS / expo-location<br/>自分の位置<br/>（通信しない）"]
         subgraph ui["画面 app/"]
             SCR["地図・ルート表示<br/>目的地のタップ"]
         end
@@ -45,6 +60,7 @@ flowchart TB
     GF --> PRE
     PRE -->|自宅 Wi-Fi| SQL
     AM --> SCR
+    GPS -->|出発点| SCR
 
     OP --> SY --> DB --> SQL
     SQL --> DB --> GR
@@ -65,6 +81,7 @@ sequenceDiagram
     participant R as route
 
     U->>S: 地図をタップ（目的地）
+    Note over S: 出発点は GPS で得た現在地。通信しない
     S->>D: 経路が通りうるタイルを読む
     D-->>S: way と node（OSM の生データ）
     S->>G: グラフを組み立てる
@@ -88,6 +105,9 @@ sequenceDiagram
 
 **通信するのは道路網を入れるときだけ。** 散歩中は経路探索が端末内で完結する。
 地図タイルの通信だけは Apple Maps 側で起きるが、これは[要件の対象外](./requirements.md#5-非機能要件)。
+
+**現在地の取得に通信は要らない。** GPS は衛星から受信するだけで、
+Overpass とも Apple Maps とも関係しない。
 
 ### モジュールの依存
 
