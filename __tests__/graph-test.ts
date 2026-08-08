@@ -7,7 +7,7 @@ import {
   neighbors,
   reachableFrom,
 } from "@/lib/graph";
-import { OsmNode, OsmWay, TileData } from "@/lib/overpass";
+import { OsmNode, OsmWay, TileData } from "@/lib/osm";
 
 /**
  * 格子状のノードを用意する。id は 1 始まりで、

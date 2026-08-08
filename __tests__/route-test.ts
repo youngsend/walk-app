@@ -1,5 +1,5 @@
 import { buildGraph } from "@/lib/graph";
-import { OsmNode, OsmWay, TileData } from "@/lib/overpass";
+import { OsmNode, OsmWay, TileData } from "@/lib/osm";
 import { findRoute, highwayBreakdown } from "@/lib/route";
 
 /**

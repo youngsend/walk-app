@@ -1,4 +1,4 @@
-import { OsmNode, OsmWay, TileData } from "./overpass";
+import { OsmNode, OsmWay, TileData } from "./osm";
 import { TileId } from "./tiles";
 
 /**

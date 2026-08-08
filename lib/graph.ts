@@ -1,5 +1,5 @@
 import { edgeFactor } from "./cost";
-import { OsmNode, OsmWay, TileData } from "./overpass";
+import { OsmNode, OsmWay, TileData } from "./osm";
 import { TileId, tileBounds } from "./tiles";
 
 /**

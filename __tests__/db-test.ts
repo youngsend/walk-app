@@ -8,7 +8,7 @@ import {
   savedTiles,
   saveTile,
 } from "@/lib/db";
-import { OsmNode, OsmWay, TileData } from "@/lib/overpass";
+import { OsmNode, OsmWay, TileData } from "@/lib/osm";
 import { TileId } from "@/lib/tiles";
 
 /**
