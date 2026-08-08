@@ -220,7 +220,7 @@ export function edgeNode(
   let bestLon = side === "west" ? Infinity : -Infinity;
 
   for (const [id, node] of graph.nodes) {
-    // Overpass は bbox の外まで返すので、タイル内のノードだけに絞る
+    // way はタイルの外まで形状を持つので、タイル内のノードだけに絞る
     if (node.lat < bounds.south || node.lat >= bounds.north) continue;
     if (node.lon < bounds.west || node.lon >= bounds.east) continue;
 

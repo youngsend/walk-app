@@ -73,7 +73,7 @@ describe("initSchema", () => {
   it("古いスキーマの DB は作り直す", async () => {
     // 回帰テスト。列を変えたのに古い表が残り、
     // 「Calling the prepareAsync function has failed」になっていた。
-    // 道路網は Overpass から取り直せるので、作り直してよい
+    // 道路網は前処理で作り直せるので、捨ててよい
     const db = memoryDatabase();
     await db.execAsync(`
       PRAGMA user_version = 1;
@@ -308,7 +308,7 @@ describe("loadTiles", () => {
   });
 
   it("境界をまたぐ way は、どちらのタイルからも読める", async () => {
-    // Overpass は bbox 外まで含めた完全な形状を返すため、
+    // way はタイルの外まで形状を持つため、
     // 隣り合うタイルには同じ way が入る。docs/design.md#23-タイル間の接続
     const db = await fresh();
     const shared = way(1, [10, 11]);
@@ -370,5 +370,32 @@ describe("footway の種別の保存", () => {
 
     const loaded = await loadTiles(db, [TILE_A]);
     expect(loaded.ways[0].tags.footway).toBeUndefined();
+  });
+});
+
+describe("沿っている幹線の保存", () => {
+  it("歩道が沿う幹線の種別が往復する", async () => {
+    // これが無いと、幹線沿いの歩道に幹線の係数を継がせられない
+    // （docs/design.md#111-footway-の-6-割は道路の付属物）
+    const db = await fresh();
+    await saveTile(
+      db,
+      TILE_A,
+      data(
+        [way(1, [1, 2], { highway: "footway", footway: "sidewalk", along: "secondary" })],
+        [node(1), node(2)],
+      ),
+    );
+
+    const loaded = await loadTiles(db, [TILE_A]);
+    expect(loaded.ways[0].tags.along).toBe("secondary");
+  });
+
+  it("along が無い way でも往復する", async () => {
+    const db = await fresh();
+    await saveTile(db, TILE_A, data([way(1, [1, 2])], [node(1), node(2)]));
+
+    const loaded = await loadTiles(db, [TILE_A]);
+    expect(loaded.ways[0].tags.along).toBeUndefined();
   });
 });

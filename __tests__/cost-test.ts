@@ -106,8 +106,61 @@ describe("edgeFactor — footway の種別", () => {
   // （docs/design.md#111-footway-の-6-割は道路の付属物）。
   // 車道に付随する線を好きな道と同じ扱いにすると、大通り沿いの歩道が
   // 最も安い道になり「幹線を避ける」が骨抜きになる
-  it("歩道は優遇しない", () => {
-    expect(edgeFactor({ highway: "footway", footway: "sidewalk" })).toBe(1.5);
+  it("幹線沿いの歩道は、その幹線と同じ係数になる", () => {
+    // **ここが肝。** 幹線に 8.0 を付けても、歩行者はその車道を通らず
+    // 並走する歩道を通る。歩道が安いままなら減点は丸ごと迂回される
+    expect(edgeFactor({ highway: "footway", footway: "sidewalk", along: "primary" })).toBe(
+      edgeFactor({ highway: "primary" }),
+    );
+    expect(
+      edgeFactor({ highway: "footway", footway: "sidewalk", along: "secondary" }),
+    ).toBe(edgeFactor({ highway: "secondary" }));
+    expect(
+      edgeFactor({ highway: "footway", footway: "sidewalk", along: "tertiary" }),
+    ).toBe(edgeFactor({ highway: "tertiary" }));
+  });
+
+  it("歩行不可の道路沿いの歩道は通行可能な上限になる", () => {
+    // trunk / motorway 自体は歩けないので親の係数が無い。
+    // 沿って歩くのは最悪なので、通行を許す上限（primary の 8.0）を当てる
+    expect(edgeFactor({ highway: "footway", footway: "sidewalk", along: "trunk" })).toBe(8.0);
+    expect(
+      edgeFactor({ highway: "footway", footway: "sidewalk", along: "motorway" }),
+    ).toBe(8.0);
+  });
+
+  it("沿う幹線が分からない歩道は好きな道と同じにする", () => {
+    // 生活道路の歩道がここに入る。実測で別線歩道の 8% がそれだった
+    expect(edgeFactor({ highway: "footway", footway: "sidewalk" })).toBe(1.0);
+  });
+
+  it("種別が無い footway でも、幹線沿いなら幹線の係数になる", () => {
+    // footway の 39.4% は footway= が無い。その中身は公園の遊歩道と、
+    // 種別を書かれていない歩道の混在で、タグでは見分けられない。
+    // 隣に幹線があるかどうかは座標で分かる（lib/sidepath.ts）
+    expect(edgeFactor({ highway: "footway", along: "secondary" })).toBe(4.0);
+  });
+
+  it("歩行者専用の道はどれも幹線沿いなら継ぐ", () => {
+    // path・pedestrian・steps も車道に付随して描かれることがある。
+    // 歩道橋の橋げたは footway + bridge で、ここに入る
+    expect(edgeFactor({ highway: "path", along: "primary" })).toBe(8.0);
+    expect(edgeFactor({ highway: "pedestrian", along: "primary" })).toBe(8.0);
+    expect(edgeFactor({ highway: "steps", along: "primary" })).toBe(8.0);
+  });
+
+  it("横断歩道は along があっても継がない", () => {
+    // 横断は避けようがない。横切る道は sidepath 側でも弾いているが、
+    // 念のためコスト側でも見ない
+    expect(
+      edgeFactor({ highway: "footway", footway: "crossing", along: "primary" }),
+    ).toBe(1.0);
+  });
+
+  it("車道そのものは along を見ない", () => {
+    // residential に along が付いていても、自分の種別で決まる
+    expect(edgeFactor({ highway: "residential", along: "primary" })).toBe(1.0);
+    expect(edgeFactor({ highway: "tertiary", along: "primary" })).toBe(2.0);
   });
 
   it("横断歩道は基準と同じにする", () => {
@@ -132,9 +185,9 @@ describe("edgeFactor — footway の種別", () => {
   });
 
   it("歩道でも車線補正は掛かる", () => {
-    expect(edgeFactor({ highway: "footway", footway: "sidewalk", lanes: "2" })).toBe(
-      1.5 * 1.5,
-    );
+    expect(
+      edgeFactor({ highway: "footway", footway: "sidewalk", along: "primary", lanes: "2" }),
+    ).toBe(8.0 * 1.5);
   });
 });
 

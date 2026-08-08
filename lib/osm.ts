@@ -1,8 +1,7 @@
 /**
  * OpenStreetMap から取り込んだ道路データの形。
  *
- * 出所は問わない。開発初期は Overpass API から取ったが、
- * 実運用では Geofabrik の抽出ファイルを Mac で前処理して入れる
+ * Geofabrik の抽出ファイルを Mac で前処理して入れる
  * （docs/design.md#3-オフラインデータの一括投入）。
  */
 

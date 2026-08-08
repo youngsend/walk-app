@@ -52,26 +52,40 @@ export function highwayFactor(highway: string): number {
 }
 
 /**
- * `footway=` の種別ごとの係数。**`highway=footway` のときだけ見る。**
- *
- * 関東全域の実測では `highway=footway` 407,776 本のうち
- * 歩道 30.3% / 横断歩道 29.8% で、6 割が車道に付随して別に描かれた線だった
- * （docs/design.md#111-footway-の-6-割は道路の付属物）。
- * これを 0.8 で優遇すると**大通り沿いの歩道が最も安い道になり**、
- * 経路の統計に primary が出てこないまま幹線沿いを歩くことになる。
- *
- * 歩道を 1.5 にしたのは「幹線沿いの proxy」として基準より不利にするため。
- * 実測では、別線で描かれた歩道の 92% が tertiary 以上の道路に沿っていた
- * （docs/design.md#sidewalk-は本当に幹線の歩道か実測）。
- *
- * ただし残り 8% は生活道路の歩道で、**気持ちよく歩ける道が減点される**。
- * 値は初期値。実際に歩いて調整する（docs/requirements.md#7-未決事項）。
+ * 歩行不可の道路（trunk / motorway）沿いの歩道に当てる係数。
+ * 親の係数が存在しないので、通行を許す上限を当てる。
  */
-const FOOTWAY_FACTOR: Record<string, number> = {
-  sidewalk: 1.5,
-  // 横断は避けようがない。優遇だけ外して好きな道と同じにする
-  crossing: LIKED,
-};
+const SIDEPATH_CEILING = 8.0;
+
+/**
+ * 車道に付随して別に描かれることがある、歩行者専用の道の種別。
+ * これらだけが `along`（沿っている幹線）を継ぐ。
+ *
+ * `footway` の 39.4% は `footway=` が無く、公園の遊歩道と
+ * 種別を書かれていない歩道が混ざっている。**タグでは見分けられないが、
+ * 隣に幹線が走っているかは座標で分かる。** 歩道橋の橋げたもここに入る。
+ */
+const SIDEPATH_ELIGIBLE = new Set(["footway", "path", "pedestrian", "steps"]);
+
+/**
+ * 歩行者専用の道の係数は、**沿っている道路の係数を継ぐ。**
+ *
+ * 幹線に 8.0 を付けても、歩行者はその車道の way を通らない。
+ * 並走して別に描かれた歩道を通る。歩道が安いままなら
+ * **幹線の減点は丸ごと迂回され、意味を失う。**
+ * 実測でも、歩道を 1.5 に留めた段階では経路の 39% が footway だった
+ * （docs/design.md#111-footway-の-6-割は道路の付属物）。
+ *
+ * 沿っている道路は前処理が空間的に求めて `along` 列に入れる
+ * （lib/sidepath.ts）。OSM の歩道は親道路を記録していないため。
+ * `along` が無い道は生活道路沿いか判断不能なので、好きな道と同じ 1.0。
+ */
+function sidepathFactor(along: string): number {
+  const inherited = HIGHWAY_FACTOR[along];
+  if (inherited !== undefined) return inherited;
+  // trunk / motorway は歩行不可で表に無い
+  return SIDEPATH_CEILING;
+}
 
 /** 車線補正の下限。1 車線以下の道に掛かる。 */
 const MIN_LANES_FACTOR = 0.9;
@@ -103,7 +117,6 @@ export function lanesFactor(lanes: string | undefined): number {
 export const MIN_EDGE_FACTOR =
   Math.min(
     ...Object.values(HIGHWAY_FACTOR),
-    ...Object.values(FOOTWAY_FACTOR),
     DEFAULT_FACTOR,
   ) * MIN_LANES_FACTOR;
 
@@ -111,10 +124,15 @@ export const MIN_EDGE_FACTOR =
 export function edgeFactor(tags: Record<string, string>): number {
   const highway = tags.highway ?? "";
 
-  // footway だけは種別まで見る。知らない種別なら歩行者専用道のまま優遇する
+  // 幹線沿いの歩行者専用道は、沿っている道路の係数を継ぐ。
+  // 横断歩道は除く（横断は避けようがない）
   let base = highwayFactor(highway);
-  if (highway === "footway" && tags.footway !== undefined) {
-    base = FOOTWAY_FACTOR[tags.footway] ?? base;
+  if (
+    tags.along !== undefined &&
+    SIDEPATH_ELIGIBLE.has(highway) &&
+    tags.footway !== "crossing"
+  ) {
+    base = sidepathFactor(tags.along);
   }
 
   return base * lanesFactor(tags.lanes);

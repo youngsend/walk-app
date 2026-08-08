@@ -4,20 +4,20 @@ import { TileId } from "./tiles";
 /**
  * 道路網をタイル単位で端末内に保存する。docs/design.md#4-データ保存
  *
- * 保存するのは Overpass が返した生の way / node で、グラフではない。
+ * 保存するのは生の way / node で、グラフではない。
  * グラフは「読み込んだタイル全体」から組み立てる必要があるため
  * （あるノードが交差点かどうかは、隣のタイルを読んだ時点で変わる）、
  * タイルごとにエッジを作って保存すると隣を足したときに辻褄が合わなくなる。
  *
- * way も node も OSM の ID を主キーにする。Overpass は bbox の外まで
- * 含めた形状を返すので隣り合うタイルには同じ way が入るが、
+ * way も node も OSM の ID を主キーにする。way は構成ノードが入るタイル
+ * すべてに入るので隣り合うタイルには同じ way が現れるが、
  * ID が同じなら上書きされて重複しない（docs/design.md#23-タイル間の接続）。
  *
  * 無駄を削って 1 タイル 784KB → 404KB（実測）。削ったのは 2 つだけで、
  * **精度は一切落としていない**。
  * - node とタイルの対応表をやめた。way の node 参照から辿れるため不要で、
  *   node 1 件ごとの行が全体の 3 割を占めていた
- * - way のタグは経路探索が読む highway / lanes / footway だけを列に持つ。
+ * - way のタグは経路探索が読む highway / lanes / footway / along だけを列に持つ。
  *   name や surface は保存しない（読む側がいない）
  *
  * 座標は REAL のまま。整数化すれば 1 割ほど縮むが、丸めが入るのでやめた。
@@ -33,15 +33,18 @@ export type Database = {
 
 /**
  * スキーマを変えたら上げる。上げると端末の DB は作り直される。
- * 道路網は Overpass や Geofabrik から取り直せるので、移行はしない。
+ * 道路網は前処理で作り直せるので、移行はしない。
  *
  * 1: 最初の形（tags を JSON、node ごとのタイル対応表あり）
  * 2: 使うタグだけを列に。node_tiles を廃止
  * 3: footway の種別を持たせた。歩道・横断歩道を歩行者専用道と
  *    区別しないと、大通り沿いの歩道が最も安い道になってしまう
  *    （docs/design.md#111-footway-の-6-割は道路の付属物）
+ * 4: 歩道が沿っている幹線の種別（along）を持たせた。幹線に減点しても
+ *    歩行者は並走する歩道を通るので、歩道が親の係数を継がないと
+ *    減点が丸ごと迂回される
  */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 const TABLES = ["tiles", "nodes", "ways", "way_tiles", "node_tiles"];
 
@@ -65,7 +68,7 @@ async function isUsable(db: Database): Promise<boolean> {
   }
 }
 
-const REQUIRED_WAY_COLUMNS = ["id", "node_ids", "highway", "lanes", "footway"];
+const REQUIRED_WAY_COLUMNS = ["id", "node_ids", "highway", "lanes", "footway", "along"];
 
 export async function initSchema(db: Database): Promise<void> {
   // 使えない形なら作り直す。道路網は取り直せるので移行はしない。
@@ -96,7 +99,9 @@ export async function initSchema(db: Database): Promise<void> {
       highway TEXT NOT NULL,
       lanes REAL,
       -- highway=footway のときの footway= の値（sidewalk / crossing など）
-      footway TEXT
+      footway TEXT,
+      -- 歩道が沿っている幹線の種別。前処理が空間的に求める（lib/sidepath.ts）
+      along TEXT
     );
 
     -- way はタイルをまたぐので多対多にする。
@@ -144,12 +149,13 @@ export async function saveTile(
   for (const w of data.ways) {
     const lanes = parseFloat(w.tags.lanes);
     await db.runAsync(
-      "INSERT OR REPLACE INTO ways (id, node_ids, highway, lanes, footway) VALUES (?, ?, ?, ?, ?)",
+      "INSERT OR REPLACE INTO ways (id, node_ids, highway, lanes, footway, along) VALUES (?, ?, ?, ?, ?, ?)",
       w.id,
       JSON.stringify(w.nodes),
       w.tags.highway ?? "",
       Number.isFinite(lanes) ? lanes : null,
       w.tags.footway ?? null,
+      w.tags.along ?? null,
     );
     await db.runAsync(
       "INSERT OR REPLACE INTO way_tiles (way_id, x, y) VALUES (?, ?, ?)",
@@ -189,8 +195,9 @@ export async function loadTiles(db: Database, tiles: TileId[]): Promise<TileData
     highway: string;
     lanes: number | null;
     footway: string | null;
+    along: string | null;
   }>(
-    `SELECT DISTINCT w.id, w.node_ids, w.highway, w.lanes, w.footway
+    `SELECT DISTINCT w.id, w.node_ids, w.highway, w.lanes, w.footway, w.along
        FROM ways w
        JOIN way_tiles wt ON wt.way_id = w.id
       WHERE (wt.x, wt.y) IN (VALUES ${placeholders})`,
@@ -201,6 +208,7 @@ export async function loadTiles(db: Database, tiles: TileId[]): Promise<TileData
     const tags: Record<string, string> = { highway: r.highway };
     if (r.lanes !== null) tags.lanes = String(r.lanes);
     if (r.footway !== null) tags.footway = r.footway;
+    if (r.along !== null) tags.along = r.along;
     return { id: r.id, nodes: JSON.parse(r.node_ids), tags };
   });
 

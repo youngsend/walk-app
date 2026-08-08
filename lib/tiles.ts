@@ -49,7 +49,7 @@ export function tilesAround(center: TileId, radius: number): TileId[] {
   return tiles;
 }
 
-/** Overpass の bbox 用。south, west, north, east の順。 */
+/** タイルの範囲。south, west, north, east の順。 */
 export function tileBounds(tile: TileId) {
   return {
     south: (tile.y * UNITS_PER_TILE) / SCALE,
