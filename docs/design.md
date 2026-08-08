@@ -25,50 +25,88 @@
 しかも役目は一時的で、[F-10](./requirements.md#f-10-オフラインデータの一括投入) で関東全域を入れたあとは、
 圏外のエリアを足すときにしか使わない。
 
-### 何がどこにあるか
+### 開発中の構成
+
+道路網は Overpass からタイル単位で取る。前処理も一括投入もまだ無い。
 
 ```mermaid
 flowchart TB
     subgraph outside["外部"]
-        OV["Overpass API<br/>タイル単位の取得<br/>（開発中と圏外用）"]
-        GF["Geofabrik<br/>関東 7 県の一括配布"]
+        OV["Overpass API<br/>タイル単位で取得"]
         AM["Apple Maps<br/>地図の絵"]
-    end
-
-    subgraph mac["Mac（開発時のみ）"]
-        PRE["scripts/<br/>PBF → SQLite の前処理"]
     end
 
     subgraph app["iPhone（Expo Go）"]
         GPS["GPS / expo-location<br/>自分の位置<br/>（通信しない）"]
-        subgraph ui["画面 app/"]
-            SCR["地図・ルート表示<br/>目的地のタップ"]
-        end
+        SCR["画面 app/"]
         subgraph logic["ロジック lib/"]
-            TS["tiles<br/>座標 ⇄ タイル ID"]
-            OP["overpass<br/>取得とミラー切替"]
-            SY["tile-sync<br/>足りないタイルを揃える"]
-            GR["graph<br/>way → 交差点とエッジ"]
-            CO["cost<br/>種別係数・履歴係数"]
-            RT["route<br/>A* 探索"]
-            DB["db<br/>SQLite への読み書き"]
+            OP["overpass"]
+            SY["tile-sync"]
+            DB["db"]
+            GR["graph"]
+            RT["route"]
         end
-        SQL[("walk.db<br/>道路網・歩いた区間")]
+        SQL[("walk.db<br/>数タイル分")]
     end
 
-    OV --> OP
-    GF --> PRE
-    PRE -->|自宅 Wi-Fi| SQL
+    OV --> OP --> SY --> DB --> SQL
+    SQL --> DB --> GR --> RT --> SCR
     AM --> SCR
-    GPS -->|出発点| SCR
-
-    OP --> SY --> DB --> SQL
-    SQL --> DB --> GR
-    CO --> GR
-    GR --> RT --> SCR
-    TS --> SY
-    SCR --> RT
+    GPS --> SCR
 ```
+
+### 実用中の構成
+
+関東全域を Geofabrik から一括投入したあと。**散歩中に道路データの通信は起きない。**
+
+```mermaid
+flowchart TB
+    subgraph outside["外部"]
+        GF["Geofabrik<br/>関東 7 県の PBF"]
+        AM["Apple Maps<br/>地図の絵"]
+        OV["Overpass API<br/>圏外に行ったときだけ"]
+    end
+
+    subgraph mac["Mac（年 1 回程度）"]
+        PRE["scripts/<br/>PBF → SQLite"]
+    end
+
+    subgraph app["iPhone（Expo Go）"]
+        GPS["GPS / expo-location<br/>自分の位置<br/>（通信しない）"]
+        SCR["画面 app/"]
+        subgraph logic["ロジック lib/"]
+            DB["db"]
+            GR["graph"]
+            RT["route"]
+        end
+        SQL[("walk.db<br/>関東 7 県 約 2.4GB")]
+    end
+
+    GF --> PRE
+    PRE -->|自宅 Wi-Fi・一度きり| SQL
+    OV -.->|圏外で明示操作したときだけ| SQL
+    SQL --> DB --> GR --> RT --> SCR
+    AM --> SCR
+    GPS --> SCR
+```
+
+### 2 つの違い
+
+| | 開発中 | 実用中 |
+|---|---|---|
+| 道路データの入手 | Overpass（タイル単位） | Geofabrik（一括） |
+| 手元のデータ量 | 数タイル・数百 KB | 関東 7 県・約 2.4GB |
+| 前処理 | 無し | Mac で PBF → SQLite |
+| 散歩中の道路データ通信 | 起きうる | **起きない** |
+| Overpass の役目 | 主役 | 圏外用の逃げ道のみ |
+
+**圏外用の通信には条件が付く**（[F-8](./requirements.md#f-8-道路網データの取得)、[非機能要件](./requirements.md#5-非機能要件)）:
+
+- モバイル通信中は**自動取得しない**
+- 自動の通信は **Wi-Fi 接続時のみ**
+- モバイル通信を使うのは、**ユーザーが明示的に指示したときだけ**
+
+散歩中に勝手に通信することはない。
 
 ### データの流れ
 
