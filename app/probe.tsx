@@ -36,10 +36,23 @@ export default function Probe() {
 
   const busy = running !== null;
 
+  /** 開いた接続を持っておく。閉じないと deleteDatabaseAsync が失敗する。 */
+  const handle = useRef<SQLite.SQLiteDatabase | null>(null);
+
   async function open(): Promise<Database> {
-    const db = (await SQLite.openDatabaseAsync(PROBE_DB)) as unknown as Database;
+    if (!handle.current) {
+      handle.current = await SQLite.openDatabaseAsync(PROBE_DB);
+    }
+    const db = handle.current as unknown as Database;
     await initProbe(db);
     return db;
+  }
+
+  async function close() {
+    if (handle.current) {
+      await handle.current.closeAsync();
+      handle.current = null;
+    }
   }
 
   async function run(label: "膨張" | "クエリ" | "削除", fn: () => Promise<void>) {
@@ -78,6 +91,8 @@ export default function Probe() {
 
   const remove = () =>
     run("削除", async () => {
+      // 開いたままだと削除できない
+      await close();
       await SQLite.deleteDatabaseAsync(PROBE_DB);
       setBytes(0);
       setResult(null);
@@ -91,6 +106,7 @@ export default function Probe() {
       <Text style={styles.lead}>
         F-10 は約 900MB の DB を端末に置く。Expo Go で扱えなければ
         ネイティブビルドが必要になり、macOS のアップグレードか年 $99 がかかる。
+        ここで作るのはサイズを再現するだけの使い捨てで、実データではない。
       </Text>
 
       <View style={styles.card}>
@@ -152,7 +168,8 @@ export default function Probe() {
       </Pressable>
 
       <Text style={styles.note}>
-        使い捨ての DB。確認が済んだら必ず削除すること。
+        中身は randomblob（無意味なランダムデータ）。関東 7 県のデータではない。
+        確認が済んだら必ず削除すること。
       </Text>
 
       {error && (
