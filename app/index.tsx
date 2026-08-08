@@ -143,10 +143,11 @@ export default function Index() {
       </Text>
 
       <Link href="/probe" asChild>
-        <Pressable style={[styles.button, styles.buttonSecondary]}>
-          <Text style={[styles.buttonText, styles.buttonSecondaryText]}>
-            Step 1-4: 900MB の DB を試す
-          </Text>
+        <Pressable
+          style={({ pressed }) => [styles.linkRow, pressed && styles.linkRowPressed]}
+        >
+          <Text style={styles.linkText}>Step 1-4: 900MB の DB を試す</Text>
+          <Text style={styles.linkChevron}>›</Text>
         </Pressable>
       </Link>
 
@@ -265,6 +266,22 @@ const styles = StyleSheet.create({
   },
   buttonSecondary: { backgroundColor: "#fff" },
   buttonSecondaryText: { color: "#0a7ea4" },
+  /** 操作ボタンではなく別画面への遷移。枠線と矢印で押せることを示す */
+  linkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#0a7ea4",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    minHeight: 50,
+  },
+  linkRowPressed: { backgroundColor: "#e3f1f6" },
+  linkText: { color: "#0a7ea4", fontSize: 16, fontWeight: "600" },
+  linkChevron: { color: "#0a7ea4", fontSize: 22, fontWeight: "600" },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
   note: { fontSize: 12, color: "#888", textAlign: "center" },
