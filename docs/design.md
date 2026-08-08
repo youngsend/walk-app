@@ -268,5 +268,5 @@ OSM ID なら、上表の通り 3 年で 98.3% の way がそのままなので�
 | 用途 | ライブラリ | 備考 |
 |---|---|---|
 | 地図表示 | `react-native-maps` | iOS は Apple Maps。API キー不要。Expo Go で動く |
-| 位置情報 | `expo-location` | フォアグラウンド取得は Expo Go で動く。バックグラウンドは開発ビルド必須 |
+| 位置情報 | `expo-location` | フォアグラウンド取得のみ使う。Expo Go で動く |
 | 保存 | `expo-sqlite` | |
