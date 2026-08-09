@@ -22,6 +22,7 @@ import fs from "node:fs";
 import osmParser from "osm-pbf-parser";
 
 import { isWalkable, tilesForNodes } from "../lib/osm-filter";
+import { isAreaWay } from "../lib/poi";
 import { ArterialIndex } from "../lib/sidepath";
 import { tileAt } from "../lib/tiles";
 
@@ -105,9 +106,11 @@ async function pass1CollectWays() {
     const tags = item.tags ?? {};
     const refs = item.refs ?? [];
 
-    // 名前つきの面（公園・駅・施設）。重心を出すのは座標が揃ってから。
-    // 公園は 30,041 件が面で描かれているので、点だけでは足りない
-    if (refs.length >= 2 && !tags.highway) {
+    // 名前つきの面（公園・駅・施設）。重心と広がりを出すのは座標が揃ってから。
+    // 公園は 30,041 件が面で描かれているので、点だけでは足りない。
+    // **閉じた形だけ**にする。鉄道路線のような線を面にすると、
+    // 細長い bbox が広大な矩形になって離れた場所まで飲み込む
+    if (isAreaWay(refs) && !tags.highway) {
       const kind = poiKind(tags);
       if (kind) {
         insertPoiWay.run(item.id, JSON.stringify(refs), tags.name, kind);

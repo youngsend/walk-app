@@ -1,4 +1,4 @@
-import { POI_MAX_METERS, Poi, describePoint, nearestPoi } from "@/lib/poi";
+import { POI_MAX_METERS, Poi, describePoint, isAreaWay, nearestPoi } from "@/lib/poi";
 
 /** 武蔵小山あたり。緯度 0.0001 度 ≒ 11m */
 const BASE = { lat: 35.62, lon: 139.7 };
@@ -122,5 +122,25 @@ describe("describePoint", () => {
   it("面の中では距離 0 を返す", () => {
     const big = park("林試の森公園", 0.002, 0.003);
     expect(describePoint([big], BASE)?.distanceM).toBe(0);
+  });
+});
+
+describe("isAreaWay", () => {
+  it("閉じた形は面として扱う", () => {
+    // 公園や敷地。最初と最後が同じノード
+    expect(isAreaWay([1, 2, 3, 4, 1])).toBe(true);
+  });
+
+  it("閉じていない線は面として扱わない", () => {
+    // **回帰テスト。** 鉄道路線を面として入れたら、細長い形の bbox が
+    // 広大な矩形になり、住宅地をタップしても「東急目黒線」が返っていた
+    expect(isAreaWay([1, 2, 3, 4])).toBe(false);
+  });
+
+  it("短すぎるものは面として扱わない", () => {
+    expect(isAreaWay([1, 2, 1])).toBe(false);
+    expect(isAreaWay([1, 1])).toBe(false);
+    expect(isAreaWay([1])).toBe(false);
+    expect(isAreaWay([])).toBe(false);
   });
 });

@@ -30,6 +30,19 @@ export type NearbyPoi = Poi & { distanceM: number };
  * ズームアウトして何も無い場所をタップしたときに遠くの店名を出すと、
  * かえって誤解を招く。
  */
+/**
+ * 面として扱ってよい way か。**閉じた形だけ。**
+ *
+ * 鉄道路線や川は細長い線で、その bbox は広大な矩形になる。面として
+ * 入れると、離れた住宅地をタップしても「その中にいる」と判定されて
+ * 路線名が返ってしまう（実際に「東急目黒線」が出た）。
+ */
+export function isAreaWay(refs: number[]): boolean {
+  // 三角形以上（同じノードで閉じるので 4 点以上必要）
+  if (refs.length < 4) return false;
+  return refs[0] === refs[refs.length - 1];
+}
+
 /** 町名を探す距離。代表点が 1 つ置かれているだけなので広く取る。 */
 export const PLACE_MAX_METERS = 600;
 
