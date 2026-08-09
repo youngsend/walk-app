@@ -48,6 +48,20 @@ describe("describePoint", () => {
   const shop = poi("セブンイレブン", 0.0002);
   const area = { ...poi("中延二丁目", 0.002), kind: "place" };
 
+  /** 面。重心と、その広がり */
+  const park = (name: string, dLat: number, halfDeg: number): Poi => ({
+    name,
+    kind: "leisure",
+    lat: BASE.lat + dLat,
+    lon: BASE.lon,
+    bounds: {
+      south: BASE.lat + dLat - halfDeg,
+      north: BASE.lat + dLat + halfDeg,
+      west: BASE.lon - halfDeg,
+      east: BASE.lon + halfDeg,
+    },
+  });
+
   it("近くに地点があればその名前を返す", () => {
     expect(describePoint([shop, area], BASE)?.name).toBe("セブンイレブン");
   });
@@ -77,5 +91,36 @@ describe("describePoint", () => {
 
   it("何も無ければ返さない", () => {
     expect(describePoint([], BASE)).toBeUndefined();
+  });
+
+  it("面の中にいれば、重心から遠くてもその面を返す", () => {
+    // **回帰テスト。** 公園を重心 1 点に潰していたため、公園の中を
+    // タップしても中心から離れると別の店の名前が出ていた。
+    // 散歩の目的地として公園は一番ありそうなので、これでは困る
+    const big = park("林試の森公園", 0.002, 0.003);
+    expect(describePoint([big], BASE)?.name).toBe("林試の森公園");
+  });
+
+  it("面の中では、近くの小さな地点より面を優先する", () => {
+    // 公園の中にある自販機やベンチの名前を出しても仕方がない
+    const big = park("林試の森公園", 0.002, 0.003);
+    expect(describePoint([big, poi("自販機", 0.0001)], BASE)?.name).toBe("林試の森公園");
+  });
+
+  it("重なっていれば小さい面を返す", () => {
+    // 広い公園の中の小さな庭園など。具体的なほうが役に立つ
+    const big = park("大きな公園", 0, 0.01);
+    const small = park("小さな庭園", 0, 0.001);
+    expect(describePoint([big, small], BASE)?.name).toBe("小さな庭園");
+  });
+
+  it("面の外なら、その面は返さない", () => {
+    const big = park("林試の森公園", 0.05, 0.003);
+    expect(describePoint([big], BASE)).toBeUndefined();
+  });
+
+  it("面の中では距離 0 を返す", () => {
+    const big = park("林試の森公園", 0.002, 0.003);
+    expect(describePoint([big], BASE)?.distanceM).toBe(0);
   });
 });

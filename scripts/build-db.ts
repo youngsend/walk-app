@@ -64,7 +64,7 @@ db.exec(`
   -- 幹線。歩けない trunk / motorway も含む。歩道が沿う相手を探すのに使う
   CREATE TABLE arterials (id INTEGER PRIMARY KEY, node_ids TEXT NOT NULL, highway TEXT NOT NULL);
   -- 名前つきの地点。タップした場所の名前を出すのに使う
-  CREATE TABLE pois (x INTEGER NOT NULL, y INTEGER NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL);
+  CREATE TABLE pois (x INTEGER NOT NULL, y INTEGER NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL, south REAL, north REAL, west REAL, east REAL);
   -- 名前つきの面。重心を出すため、座標が揃うまで控えておく
   CREATE TABLE poi_ways (id INTEGER PRIMARY KEY, node_ids TEXT NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL);
 `);
@@ -320,7 +320,7 @@ function centroidPois() {
   log("名前つきの面を重心にする");
   const coordsOf = db.prepare("SELECT lat, lon FROM nodes WHERE id = ?");
   const insertPoi = db.prepare(
-    "INSERT INTO pois (x, y, lat, lon, name, kind) VALUES (?, ?, ?, ?, ?, ?)",
+    "INSERT INTO pois (x, y, lat, lon, name, kind, south, north, west, east) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   );
 
   let done = 0;
@@ -338,8 +338,13 @@ function centroidPois() {
     }
     const lat = coords.reduce((a, c) => a + c.lat, 0) / coords.length;
     const lon = coords.reduce((a, c) => a + c.lon, 0) / coords.length;
+    // 広がりも持たせる。重心だけだと公園の中をタップしても名前が出ない
+    const south = Math.min(...coords.map((c) => c.lat));
+    const north = Math.max(...coords.map((c) => c.lat));
+    const west = Math.min(...coords.map((c) => c.lon));
+    const east = Math.max(...coords.map((c) => c.lon));
     const tile = tileAt(lat, lon);
-    insertPoi.run(tile.x, tile.y, lat, lon, row.name, row.kind);
+    insertPoi.run(tile.x, tile.y, lat, lon, row.name, row.kind, south, north, west, east);
     done++;
   }
   db.exec("COMMIT");
@@ -402,7 +407,7 @@ function finish() {
   // 「端末上での事前処理は 5 分以内」(requirements.md#f-10) を脅かす
   db.exec("CREATE INDEX IF NOT EXISTS way_tiles_xy ON way_tiles (x, y)");
   db.exec("CREATE INDEX IF NOT EXISTS pois_xy ON pois (x, y)");
-  db.exec(`PRAGMA user_version = 5`);
+  db.exec(`PRAGMA user_version = 6`);
   db.exec("VACUUM");
 
   const count = (sql: string) => (db.prepare(sql).get() as { n: number }).n;

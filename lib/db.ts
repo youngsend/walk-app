@@ -46,8 +46,10 @@ export type Database = {
  *    減点が丸ごと迂回される
  * 5: 名前つきの地点（pois）を持たせた。Apple Maps からは POI の名前を
  *    取れないので、タップ地点の名前を出すには自前で持つしかない
+ * 6: 面の広がりを持たせた。重心 1 点だと、公園の中をタップしても
+ *    中心から離れた途端に別の店の名前が出てしまう
  */
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 const TABLES = ["tiles", "nodes", "ways", "way_tiles", "node_tiles", "pois"];
 
@@ -129,7 +131,12 @@ export async function initSchema(db: Database): Promise<void> {
       lat REAL NOT NULL,
       lon REAL NOT NULL,
       name TEXT NOT NULL,
-      kind TEXT NOT NULL
+      kind TEXT NOT NULL,
+      -- 面の広がり。点なら NULL
+      south REAL,
+      north REAL,
+      west REAL,
+      east REAL
     );
     CREATE INDEX IF NOT EXISTS pois_xy ON pois (x, y);
   `);
@@ -186,13 +193,17 @@ export async function savePois(db: Database, pois: Poi[]): Promise<void> {
   for (const p of pois) {
     const tile = tileAt(p.lat, p.lon);
     await db.runAsync(
-      "INSERT INTO pois (x, y, lat, lon, name, kind) VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT INTO pois (x, y, lat, lon, name, kind, south, north, west, east) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       tile.x,
       tile.y,
       p.lat,
       p.lon,
       p.name,
       p.kind,
+      p.bounds?.south ?? null,
+      p.bounds?.north ?? null,
+      p.bounds?.west ?? null,
+      p.bounds?.east ?? null,
     );
   }
 }
@@ -203,10 +214,28 @@ export async function loadPois(db: Database, tiles: TileId[]): Promise<Poi[]> {
 
   const placeholders = tiles.map(() => "(? , ?)").join(", ");
   const params = tiles.flatMap((t) => [t.x, t.y]);
-  return db.getAllAsync<Poi>(
-    `SELECT lat, lon, name, kind FROM pois WHERE (x, y) IN (VALUES ${placeholders})`,
+  const rows = await db.getAllAsync<{
+    lat: number;
+    lon: number;
+    name: string;
+    kind: string;
+    south: number | null;
+    north: number | null;
+    west: number | null;
+    east: number | null;
+  }>(
+    `SELECT lat, lon, name, kind, south, north, west, east
+       FROM pois WHERE (x, y) IN (VALUES ${placeholders})`,
     ...params,
   );
+
+  return rows.map((r) => {
+    const poi: Poi = { lat: r.lat, lon: r.lon, name: r.name, kind: r.kind };
+    if (r.south !== null && r.north !== null && r.west !== null && r.east !== null) {
+      poi.bounds = { south: r.south, north: r.north, west: r.west, east: r.east };
+    }
+    return poi;
+  });
 }
 
 export async function hasTile(db: Database, tile: TileId): Promise<boolean> {

@@ -15,8 +15,11 @@ export type Poi = {
   name: string;
   /** amenity / shop / leisure など。OSM のどのタグ由来か */
   kind: string;
+  /** 面なら重心 */
   lat: number;
   lon: number;
+  /** 面の広がり。点なら無い */
+  bounds?: { south: number; north: number; west: number; east: number };
 };
 
 export type NearbyPoi = Poi & { distanceM: number };
@@ -34,19 +37,44 @@ export const PLACE_MAX_METERS = 600;
 const PLACE_KIND = "place";
 
 /**
- * タップした場所を言葉にする。
+ * タップした場所を言葉にする。順に試す。
  *
- * 近くに店や公園があればその名前、無ければ町名。
- * **店のほうが具体的なので優先する。** 町名は代表点に 1 つ置かれている
- * だけなので、見つける距離を広く取っている。
+ * 1. **その中にいる面**（公園など）。重なっていれば小さいほうが具体的
+ * 2. 近くの地点（店・駅など）
+ * 3. 町名。代表点が 1 つ置かれているだけなので広く探す
+ *
+ * **面を先に見るのが肝。** 重心までの距離で選ぶと、公園の中をタップしても
+ * 中心から離れた途端に、近くの自販機や別の店の名前が出てしまう。
  */
 export function describePoint(pois: Poi[], point: LatLon): NearbyPoi | undefined {
+  const containing = smallestContaining(pois, point);
+  if (containing) return { ...containing, distanceM: 0 };
+
   const spots = pois.filter((p) => p.kind !== PLACE_KIND);
   const found = nearestPoi(spots, point);
   if (found) return found;
 
   const places = pois.filter((p) => p.kind === PLACE_KIND);
   return nearestPoi(places, point, PLACE_MAX_METERS);
+}
+
+/** 点を含む面のうち、最も狭いもの。 */
+function smallestContaining(pois: Poi[], point: LatLon): Poi | undefined {
+  let best: Poi | undefined;
+  let bestArea = Infinity;
+  for (const poi of pois) {
+    const b = poi.bounds;
+    if (!b) continue;
+    if (point.lat < b.south || point.lat > b.north) continue;
+    if (point.lon < b.west || point.lon > b.east) continue;
+
+    const area = (b.north - b.south) * (b.east - b.west);
+    if (area < bestArea) {
+      bestArea = area;
+      best = poi;
+    }
+  }
+  return best;
 }
 
 export function nearestPoi(
